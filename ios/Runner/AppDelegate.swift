@@ -1,6 +1,7 @@
 import AVFoundation
 import Flutter
 import UIKit
+import UserNotifications
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
@@ -31,6 +32,17 @@ import UIKit
         result(nil)
       case "keepAlive":
         self.tone.keepAlive(args["on"] as? Bool ?? false)
+        result(nil)
+      case "askToNotify":
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+        result(nil)
+      case "notify":
+        let c = UNMutableNotificationContent()
+        c.title = args["title"] as? String ?? "Tama"
+        c.body = args["body"] as? String ?? ""
+        c.sound = .default
+        let r = UNNotificationRequest(identifier: "tama-call", content: c, trigger: nil)
+        UNUserNotificationCenter.current().add(r)
         result(nil)
       default:
         result(FlutterMethodNotImplemented)

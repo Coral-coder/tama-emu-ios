@@ -32,6 +32,9 @@ typedef _VoidN = Void Function();
 typedef _VoidD = void Function();
 typedef _ClockN = Int32 Function(Pointer<_Tama>, Uint64);
 typedef _ClockD = int Function(Pointer<_Tama>, int);
+typedef _AdvN = Void Function(Pointer<_Tama>, Uint32);
+typedef _AdvD = void Function(Pointer<_Tama>, int);
+typedef _SoundsN = Uint32 Function(Pointer<_Tama>);
 typedef _KeyN = Int32 Function(Pointer<Utf8>, Uint32, Pointer<Uint32>);
 typedef _KeyD = int Function(Pointer<Utf8>, int, Pointer<Uint32>);
 
@@ -59,6 +62,8 @@ class ParadiseCore {
         _restore = l.lookupFunction<_PathN, _PathD>('tama_restore'),
         cyclesPerSecond = l.lookupFunction<_U64N, _U64D>('tama_cycles_per_second')(),
         _syncClock = l.lookupFunction<_ClockN, _ClockD>('tama_sync_clock'),
+        _advance = l.lookupFunction<_AdvN, _AdvD>('tama_advance'),
+        _sounds = l.lookupFunction<_SoundsN, _IntD>('tama_sounds'),
         _findKey = l.lookupFunction<_KeyN, _KeyD>('tama_find_key'),
         _keyProgress = l.lookupFunction<_U64N, _U64D>('tama_find_key_progress'),
         _keyStop = l.lookupFunction<_VoidN, _VoidD>('tama_find_key_stop');
@@ -91,6 +96,8 @@ class ParadiseCore {
   final _PathD _snapshot, _restore;
   final int cyclesPerSecond;
   final _ClockD _syncClock;
+  final _AdvD _advance;
+  final _IntD _sounds;
   final _KeyD _findKey;
   final _U64D _keyProgress;
   final _VoidD _keyStop;
@@ -141,6 +148,12 @@ class ParadiseHandle {
   void press(int pin) => core._press(_t, pin);
   void release(int pin) => core._release(_t, pin);
   double note() => core._note(_t);
+  /// Sounds the console started so far.
+  int get sounds => core._sounds(_t);
+  /// The console's clock jumps ahead (time the phone held the app suspended).
+  void advance(int seconds) {
+    if (seconds > 0) core._advance(_t, seconds);
+  }
   /// Sets the game's clock to the phone's local time. Returns the settings pages set (0: none yet,
   /// e.g. before the first setup).
   int syncClock([DateTime? at]) {

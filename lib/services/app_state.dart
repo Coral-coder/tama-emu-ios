@@ -125,7 +125,10 @@ class AppState extends ChangeNotifier {
     await stopToy();
     await stopParadise();
     final dump = await library.romFile(e);
-    final m = ParadiseMachine(core: core, dumpPath: dump.path, savePath: library.paradiseSave(e).path, title: e.name)..sound = sound;
+    final m = ParadiseMachine(core: core, dumpPath: dump.path, savePath: library.paradiseSave(e).path, title: e.name)
+      ..sound = sound
+      ..onCall = (t) => NativeBridge.notify(t.replaceFirst('Tamagotchi Paradise · ', ''), 'Your Tamagotchi is calling you.');
+    unawaited(NativeBridge.askToNotify());
     final r = m.boot(key ?? paradiseKey(e));
     if (r != 1) {
       m.dispose();
@@ -180,7 +183,10 @@ class AppState extends ChangeNotifier {
   }
 
   /// App lifecycle: going to the background / coming back.
+  DateTime? _bgAt;
   Future<void> onBackground() async {
+    _bgAt = DateTime.now();
+    paradise?.background = true;
     paradise?.save();
     if (paradise != null && !backgroundRun) paradise!.pause();
     final m = machine;
@@ -190,7 +196,13 @@ class AppState extends ChangeNotifier {
   }
 
   void onForeground() {
-    if (paradise != null && !paradise!.running) paradise!.start();
+    final away = _bgAt == null ? Duration.zero : DateTime.now().difference(_bgAt!);
+    _bgAt = null;
+    final p = paradise;
+    if (p != null) {
+      p.background = false;
+      if (!p.running) p.resumeAfter(away);
+    }
     final m = machine;
     if (m == null) return;
     if (!m.running && !m.pausedByUser) m.start(); // catches up the time away when keepLiving

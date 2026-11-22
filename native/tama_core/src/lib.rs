@@ -23,6 +23,14 @@ use emulator::{Machine, StepResult};
 
 pub struct Tama {
     m: Machine,
+    // sound, followed as Capybara does: the voice table is looked up at the start of every sound
+    son_jouait: bool,
+    derniere_recherche: u64,
+    note_perimee: f32,
+    perimee_jusqu: u64,
+    note: f32,      // the note playing now
+    note_vue: f32,  // the last note heard during the last run (short notes are not lost)
+    sons: u32,      // sounds started so far (the app notices calls with it)
 }
 
 unsafe fn path_of(p: *const c_char) -> Option<PathBuf> {
@@ -34,7 +42,16 @@ unsafe fn path_of(p: *const c_char) -> Option<PathBuf> {
 
 #[no_mangle]
 pub extern "C" fn tama_new() -> *mut Tama {
-    Box::into_raw(Box::new(Tama { m: Machine::new() }))
+    Box::into_raw(Box::new(Tama {
+        m: Machine::new(),
+        son_jouait: false,
+        derniere_recherche: 0,
+        note_perimee: 0.0,
+        perimee_jusqu: 0,
+        note: 0.0,
+        note_vue: 0.0,
+        sons: 0,
+    }))
 }
 
 #[no_mangle]
@@ -105,12 +122,53 @@ pub unsafe extern "C" fn tama_run(t: *mut Tama, cycles: u64, budget_ms: u32) -> 
     let start = t.m.cpu.cycles;
     let t0 = Instant::now();
     let limit = Duration::from_millis(budget_ms.max(1) as u64);
+    t.note_vue = 0.0;
     while t.m.cpu.cycles - start < cycles && t0.elapsed() < limit {
         if !matches!(t.m.run_frame(), StepResult::Ok(_)) {
             break;
         }
+        t.suivre_le_son();
     }
     t.m.cpu.cycles - start
+}
+
+impl Tama {
+    /// Capybara's note tracking (app.rs, note_jouee): the voice table is searched at the start of
+    /// each sound (and again every half second while it gave nothing), and the stale note left
+    /// from the previous sound is held as silence for up to 50 ms.
+    fn suivre_le_son(&mut self) {
+        let joue = self.m.son_en_cours();
+        let now = self.m.cpu.cycles;
+        let demi = CYCLES_PAR_SECONDE as u64 / 2;
+        if joue && (!self.son_jouait || (self.m.voix.is_empty() && now.saturating_sub(self.derniere_recherche) > demi)) {
+            self.m.localiser_les_voix();
+            self.derniere_recherche = now;
+        }
+        if joue && !self.son_jouait {
+            self.sons = self.sons.wrapping_add(1);
+            self.note_perimee = self.m.note_courante();
+            self.perimee_jusqu = now + CYCLES_PAR_SECONDE as u64 / 20;
+        }
+        self.son_jouait = joue;
+        let mut note = self.m.note_courante();
+        if note > 0.0 && now < self.perimee_jusqu {
+            if (note - self.note_perimee).abs() < 0.5 {
+                note = 0.0;
+            } else {
+                self.perimee_jusqu = 0;
+            }
+        }
+        self.note = note;
+        if note > 0.0 {
+            self.note_vue = note;
+        }
+    }
+}
+
+/// Sounds the console started so far (a counter: the app sees a call for attention with it).
+#[no_mangle]
+pub unsafe extern "C" fn tama_sounds(t: *const Tama) -> u32 {
+    (*t).sons
 }
 
 #[no_mangle]
@@ -149,14 +207,8 @@ pub unsafe extern "C" fn tama_release(t: *mut Tama, pin: u32) {
 /// The note the console plays now in Hz, 0 when silent.
 #[no_mangle]
 pub unsafe extern "C" fn tama_note(t: *mut Tama) -> f32 {
-    let t = &mut *t;
-    if t.m.voix.is_empty() {
-        t.m.localiser_les_voix();
-    }
-    if !t.m.son_en_cours() {
-        return 0.0;
-    }
-    t.m.note_courante()
+    let t = &*t;
+    if t.note > 0.0 { t.note } else { t.note_vue }
 }
 
 #[no_mangle]
@@ -288,4 +340,21 @@ pub unsafe extern "C" fn tama_sync_clock(t: *mut Tama, local_secs_since_2000: u6
         n += 1;
     }
     n
+}
+
+/// Time the app was not running the console (suspended by the phone): the console's seconds
+/// counter jumps ahead by it, as the real clock chip keeps counting while the toy sleeps, and a
+/// wake-up alarm that fell due in that time rings. The firmware works out the date (and how hungry
+/// the pet got) from that counter.
+#[no_mangle]
+pub unsafe extern "C" fn tama_advance(t: *mut Tama, seconds: u32) {
+    use emulator::peripherals::SnSysRegisters as Sys;
+    let t = &mut *t;
+    let s = &mut t.m.periph.snsys;
+    let avant = s.secondes;
+    s.secondes = s.secondes.saturating_add(seconds);
+    let echeance = s.read_reg(Sys::ALARME);
+    if echeance != 0 && avant <= echeance && s.secondes > echeance {
+        s.declencher_reveil();
+    }
 }

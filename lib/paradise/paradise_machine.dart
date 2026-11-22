@@ -77,8 +77,13 @@ class ParadiseMachine extends ChangeNotifier {
     final h = _h;
     if (h == null) return;
     final now = _clock.elapsedMicroseconds;
-    final dt = (now - _lastUs) / 1e6;
+    var dt = (now - _lastUs) / 1e6;
     _lastUs = now;
+    // The phone held the app (suspended, or a long stall): the console's clock chip kept counting.
+    if (dt > 2) {
+      h.advance(dt.floor());
+      dt -= dt.floor();
+    }
     final cps = core.cyclesPerSecond.toDouble();
     _due += cps * speed * dt;
     // at most a quarter of a second behind: past that the emulation does not race to catch up
@@ -91,11 +96,40 @@ class ParadiseMachine extends ChangeNotifier {
       frame++;
       notifyListeners();
     }
-    _tone(sound ? h.note() : 0);
+    final note = h.note();
+    _tone(sound ? note : 0);
+    _watchCalls(note);
     if (!h.running) {
       error = 'The console stopped.';
       pause();
     }
+  }
+
+  /// While the app is in the background, a sound after a quiet spell is the pet calling:
+  /// [onCall] posts a notification (at most one every 10 minutes).
+  bool background = false;
+  void Function(String title)? onCall;
+  int _quietSince = 0;
+  int _lastCall = 0;
+  void _watchCalls(double note) {
+    final ms = DateTime.now().millisecondsSinceEpoch;
+    if (note <= 0) {
+      if (_quietSince == 0) _quietSince = ms;
+      return;
+    }
+    final quiet = _quietSince == 0 ? 0 : ms - _quietSince;
+    _quietSince = 0;
+    if (background && quiet > 20000 && ms - _lastCall > 600000) {
+      _lastCall = ms;
+      onCall?.call(title);
+    }
+  }
+
+  /// Resumes after the app comes back: the console's clock catches up with the time it was held.
+  void resumeAfter(Duration away) {
+    if (_h == null) return;
+    if (away.inSeconds > 2 && _timer == null) _h!.advance(away.inSeconds);
+    start();
   }
 
   void _tone(double hz) {
@@ -108,13 +142,17 @@ class ParadiseMachine extends ChangeNotifier {
   void press(int pin) => _h?.press(pin);
   void release(int pin) => _h?.release(pin);
 
-  /// One step of the wheel (the two encoder lines in quadrature).
-  Future<void> turn(bool right) async {
+  /// One step of the wheel (the two encoder lines in quadrature). Steps queue up, so a quick
+  /// spin of the dial plays out step by step.
+  Future<void> _turns = Future.value();
+  Future<void> turn(bool right) => _turns = _turns.then((_) => _step(right));
+
+  Future<void> _step(bool right) async {
     final h = _h;
     if (h == null) return;
     final a = right ? ParadiseHandle.enc1 : ParadiseHandle.enc2;
     final b = right ? ParadiseHandle.enc2 : ParadiseHandle.enc1;
-    const step = Duration(milliseconds: 25);
+    const step = Duration(milliseconds: 18);
     h.press(a);
     await Future<void>.delayed(step);
     h.press(b);

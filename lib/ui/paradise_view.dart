@@ -118,70 +118,182 @@ class _ParadiseViewState extends State<ParadiseView> {
           ),
         ],
       ),
-      body: LayoutBuilder(builder: (context, c) {
-        final w = c.maxWidth.clamp(0.0, 460.0);
-        return Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: SizedBox(
-              width: w,
-              child: Column(children: [
-                Container(
-                  width: w - 24,
-                  padding: EdgeInsets.all(w * 0.1),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(colors: [Color(0xFFFF9EC4), Color(0xFFB98CFF)], begin: Alignment.topLeft, end: Alignment.bottomRight),
-                    borderRadius: BorderRadius.all(Radius.elliptical(w * 0.5, w * 0.46)),
-                    boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 18, offset: Offset(0, 8))],
-                  ),
-                  child: AspectRatio(
-                    aspectRatio: 1,
-                    child: Container(
-                      decoration: BoxDecoration(color: Colors.black, borderRadius: BorderRadius.circular(18)),
-                      padding: const EdgeInsets.all(6),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: _img == null
-                            ? const Center(child: CircularProgressIndicator())
-                            : Stack(fit: StackFit.expand, children: [
-                                RawImage(
-                                  image: _img,
-                                  fit: BoxFit.contain,
-                                  filterQuality: app.upscale == Upscale.smooth || app.upscale == Upscale.hq ? FilterQuality.medium : FilterQuality.none,
-                                ),
-                                if (app.filter == ScreenFilter.lcd || app.filter == ScreenFilter.scanlines || app.filter == ScreenFilter.crt)
-                                  IgnorePointer(child: CustomPaint(painter: OverlayPainter(app.filter))),
-                              ]),
+      body: SafeArea(
+        top: false,
+        child: LayoutBuilder(builder: (context, c) {
+          // the screen as big as it gets: full width, leaving room for the keys and the dial
+          const controls = 250.0;
+          final side = c.maxWidth.clamp(0.0, (c.maxHeight - controls).clamp(160.0, c.maxHeight));
+          return Column(children: [
+            SizedBox(
+              width: side,
+              height: side,
+              child: _img == null
+                  ? const Center(child: CircularProgressIndicator())
+                  : Stack(fit: StackFit.expand, children: [
+                      RawImage(
+                        image: _img,
+                        fit: BoxFit.fill,
+                        filterQuality: app.upscale == Upscale.smooth || app.upscale == Upscale.hq ? FilterQuality.medium : FilterQuality.none,
                       ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 22),
-                Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
-                  _key('A', ParadiseHandle.pinA),
-                  Padding(padding: const EdgeInsets.only(top: 26), child: _key('B', ParadiseHandle.pinB)),
-                  _key('C', ParadiseHandle.pinC),
-                ]),
-                const SizedBox(height: 18),
-                Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                  IconButton.filledTonal(iconSize: 30, onPressed: () => m.turn(false), icon: const Icon(Icons.rotate_left)),
-                  const SizedBox(width: 12),
-                  _key('dial', ParadiseHandle.pinWheel, size: 56),
-                  const SizedBox(width: 12),
-                  IconButton.filledTonal(iconSize: 30, onPressed: () => m.turn(true), icon: const Icon(Icons.rotate_right)),
-                ]),
-                const SizedBox(height: 14),
-                Text(
-                  m.error ?? (m.running ? 'Running · ${(m.load * 100).round()} % speed' : 'Paused'),
-                  style: TextStyle(color: m.error != null ? Colors.redAccent : Colors.white60, fontSize: 12),
-                ),
-              ]),
+                      if (app.filter == ScreenFilter.lcd || app.filter == ScreenFilter.scanlines || app.filter == ScreenFilter.crt)
+                        IgnorePointer(child: CustomPaint(painter: OverlayPainter(app.filter))),
+                    ]),
             ),
-          ),
-        );
-      }),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                child: LayoutBuilder(builder: (context, cc) {
+                  final dial = (cc.maxHeight - 24).clamp(120.0, (cc.maxWidth * 0.55).clamp(120.0, 280.0));
+                  return Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+                    Expanded(
+                      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                        Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
+                          _key('A', ParadiseHandle.pinA, size: 64),
+                          _key('C', ParadiseHandle.pinC, size: 64),
+                        ]),
+                        const SizedBox(height: 10),
+                        _key('B', ParadiseHandle.pinB, size: 64),
+                      ]),
+                    ),
+                    Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                      Dial(
+                        size: dial,
+                        onStep: (right) {
+                          HapticFeedback.selectionClick();
+                          m.turn(right);
+                        },
+                        onPress: (down) {
+                          if (down) HapticFeedback.lightImpact();
+                          down ? m.press(ParadiseHandle.pinWheel) : m.release(ParadiseHandle.pinWheel);
+                        },
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        m.error ?? (m.running ? '${(m.load * 100).round()} % speed' : 'Paused'),
+                        style: TextStyle(color: m.error != null ? Colors.redAccent : Colors.white38, fontSize: 11),
+                      ),
+                    ]),
+                  ]);
+                }),
+              ),
+            ),
+          ]);
+        }),
+      ),
     );
   }
+}
+
+/// The wheel: turn it with a finger (one click every 24 degrees, like the toy's detents);
+/// press its middle to push it in.
+class Dial extends StatefulWidget {
+  const Dial({super.key, required this.size, required this.onStep, required this.onPress});
+  final double size;
+  final void Function(bool right) onStep;
+  final void Function(bool down) onPress;
+
+  @override
+  State<Dial> createState() => _DialState();
+}
+
+class _DialState extends State<Dial> {
+  static const _detent = 0.42; // radians (24 degrees)
+  double _angle = 0, _acc = 0;
+  double? _last;
+  bool _pressed = false;
+
+  double _at(Offset p) {
+    final c = widget.size / 2;
+    return (p - Offset(c, c)).direction;
+  }
+
+  bool _inHub(Offset p) => (p - Offset(widget.size / 2, widget.size / 2)).distance < widget.size * 0.22;
+
+  @override
+  Widget build(BuildContext context) {
+    return Listener(
+      onPointerDown: (e) {
+        if (_inHub(e.localPosition)) {
+          setState(() => _pressed = true);
+          widget.onPress(true);
+        } else {
+          _last = _at(e.localPosition);
+        }
+      },
+      onPointerMove: (e) {
+        final l = _last;
+        if (l == null) return;
+        final a = _at(e.localPosition);
+        var d = a - l;
+        if (d > 3.14159) d -= 6.28318;
+        if (d < -3.14159) d += 6.28318;
+        _last = a;
+        _acc += d;
+        setState(() => _angle += d);
+        while (_acc >= _detent) {
+          _acc -= _detent;
+          widget.onStep(true);
+        }
+        while (_acc <= -_detent) {
+          _acc += _detent;
+          widget.onStep(false);
+        }
+      },
+      onPointerUp: (_) => _end(),
+      onPointerCancel: (_) => _end(),
+      child: CustomPaint(size: Size.square(widget.size), painter: _DialPainter(_angle, _pressed)),
+    );
+  }
+
+  void _end() {
+    _last = null;
+    _acc = 0;
+    if (_pressed) {
+      setState(() => _pressed = false);
+      widget.onPress(false);
+    }
+  }
+}
+
+class _DialPainter extends CustomPainter {
+  _DialPainter(this.angle, this.pressed);
+  final double angle;
+  final bool pressed;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final c = size.center(Offset.zero);
+    final r = size.width / 2;
+    canvas.drawCircle(c + const Offset(0, 4), r - 2, Paint()..color = Colors.black87..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6));
+    canvas.drawCircle(
+        c,
+        r - 2,
+        Paint()
+          ..shader = const RadialGradient(colors: [Color(0xFF4A4036), Color(0xFF231E19)]).createShader(Rect.fromCircle(center: c, radius: r)));
+    // knurled rim, turning with the finger
+    final tick = Paint()
+      ..color = kAmber.withValues(alpha: 0.55)
+      ..strokeWidth = 2.5
+      ..strokeCap = StrokeCap.round;
+    for (var i = 0; i < 30; i++) {
+      final a = angle + i * 6.28318 / 30;
+      final dir = Offset.fromDirection(a);
+      canvas.drawLine(c + dir * (r * 0.78), c + dir * (r * 0.92), tick);
+    }
+    // the marker dot
+    canvas.drawCircle(c + Offset.fromDirection(angle - 1.5708) * (r * 0.62), r * 0.06, Paint()..color = kAmber);
+    // the hub (push)
+    canvas.drawCircle(c, r * 0.22, Paint()..color = pressed ? const Color(0xFFCC8C00) : kAmber);
+    final tp = TextPainter(
+      text: const TextSpan(text: 'push', style: TextStyle(color: Colors.black, fontSize: 12, fontWeight: FontWeight.w700)),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    tp.paint(canvas, c - Offset(tp.width / 2, tp.height / 2));
+  }
+
+  @override
+  bool shouldRepaint(_DialPainter o) => o.angle != angle || o.pressed != pressed;
 }
 
 class _HoldKey extends StatefulWidget {

@@ -28,4 +28,21 @@ class NativeBridge {
       debugPrint('keepAlive: $e');
     }
   }
+
+  /// Asks once for permission to post notifications (the pet calling while the app is away).
+  static Future<void> askToNotify() async {
+    try {
+      await _ch.invokeMethod('askToNotify');
+    } catch (e) {
+      debugPrint('askToNotify: $e');
+    }
+  }
+
+  static Future<void> notify(String title, String body) async {
+    try {
+      await _ch.invokeMethod('notify', {'title': title, 'body': body});
+    } catch (e) {
+      debugPrint('notify: $e');
+    }
+  }
 }
