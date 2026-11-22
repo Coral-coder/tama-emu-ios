@@ -17,7 +17,7 @@ class LibraryScreen extends StatelessWidget {
     final app = AppState.instance;
     final lib = app.library;
     return Scaffold(
-      appBar: AppBar(title: const Text('Studio · ROMs')),
+      appBar: AppBar(title: const Text('Paramix Studio · ROMs')),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _import(context),
         icon: const Icon(Icons.file_upload_outlined),

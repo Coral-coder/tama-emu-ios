@@ -92,8 +92,8 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
             labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
             destinations: const [
               NavigationDestination(icon: Icon(Icons.egg_outlined), selectedIcon: Icon(Icons.egg), label: 'Play'),
-              NavigationDestination(icon: Icon(Icons.usb), label: 'Device'),
-              NavigationDestination(icon: Icon(Icons.auto_fix_high_outlined), label: 'Studio'),
+              NavigationDestination(icon: Icon(Icons.usb), label: 'Paramix'),
+              NavigationDestination(icon: Icon(Icons.auto_fix_high_outlined), label: 'ROMs'),
               NavigationDestination(icon: Icon(Icons.hub_outlined), label: 'Link'),
               NavigationDestination(icon: Icon(Icons.tune), label: 'More'),
             ],

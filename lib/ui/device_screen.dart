@@ -198,7 +198,7 @@ class _DeviceScreenState extends State<DeviceScreen> {
     final title = Theme.of(context).textTheme.titleSmall!.copyWith(color: kAmber);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Device'),
+        title: const Text('Paramix Studio · Device'),
         actions: [
           IconButton(
             tooltip: 'Connections & terminal',

@@ -31,7 +31,7 @@ class GamesScreen extends StatelessWidget {
               child: Padding(
                 padding: const EdgeInsets.all(24),
                 child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  const Text('No games yet. Import a Paradise dump (16 MB) or a first-generation toy ROM (12 / 16 KB).', textAlign: TextAlign.center),
+                  const Text('The emulator is ready, but this build has no ROMs in it. Tap Import and pick your Paradise dumps (16 MB) or first-generation toy ROMs (12 / 16 KB) from Files; each one then shows here with its cover.', textAlign: TextAlign.center),
                   const SizedBox(height: 12),
                   FilledButton.icon(onPressed: () => importRoms(context), icon: const Icon(Icons.file_upload_outlined), label: const Text('Import')),
                 ]),
