@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -117,6 +118,13 @@ class RomLibrary extends ChangeNotifier {
 
   static Uint8List _gunzip(Uint8List b) => Uint8List.fromList(gzip.decode(b));
 
+  static int _writeUnpacked(TransferableTypedData raw, bool gz, String path) {
+    final b = raw.materialize().asUint8List();
+    final out = gz ? gzip.decode(b) : b;
+    File(path).writeAsBytesSync(out, flush: true);
+    return out.length;
+  }
+
   /// Adds a ROM; returns the entry (an existing one when the same bytes are there already).
   Future<RomEntry> import(Uint8List b, String fileName, {String? note}) async {
     final kind = detectKind(b);
@@ -164,14 +172,44 @@ class RomLibrary extends ChangeNotifier {
 
   /// The ROM as a file on disk (the Paradise core reads its dump from a path). Built-in ROMs are
   /// unpacked once into the app's documents.
-  Future<File> romFile(RomEntry e) async {
-    if (e.file != null) return e.file!;
+  /// The ROM as a file the emulator opens. Built-in ROMs are unpacked once, off the UI thread
+  /// (gunzip and write on a worker isolate), and kept.
+  final Map<String, Future<File>> _unpacking = {};
+  Future<File> romFile(RomEntry e) {
+    if (e.file != null) return Future.value(e.file!);
+    return _unpacking.putIfAbsent(e.id, () async {
+      try {
+        return await _unpack(e);
+      } catch (_) {
+        _unpacking.remove(e.id); // try again next time
+        rethrow;
+      }
+    });
+  }
+
+  Future<File> _unpack(RomEntry e) async {
     final f = File('${docs.path}/unpacked/${e.id}.bin');
-    if (!await f.exists() || await f.length() != e.size) {
-      await f.parent.create(recursive: true);
-      await f.writeAsBytes(await bytes(e), flush: true);
-    }
+    if (await f.exists() && await f.length() == e.size) return f;
+    await f.parent.create(recursive: true);
+    final data = await rootBundle.load(e.asset!);
+    final raw = TransferableTypedData.fromList([data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes)]);
+    final gz = e.asset!.endsWith('.gz');
+    final tmp = '${f.path}.part';
+    final n = await Isolate.run(() => _writeUnpacked(raw, gz, tmp));
+    if (n != e.size) throw 'the built-in ROM unpacked to $n bytes, not ${e.size}';
+    await File(tmp).rename(f.path);
     return f;
+  }
+
+  /// Unpacks every built-in ROM in the background (after launch), so a game starts at once.
+  Future<void> unpackAll() async {
+    for (final e in entries.where((e) => e.asset != null)) {
+      try {
+        await romFile(e);
+      } catch (err) {
+        debugPrint('unpack ${e.name}: $err');
+      }
+    }
   }
 
   /// Cover picture of a ROM (PNG), taken from the ROM's own graphics: a Paradise shows its

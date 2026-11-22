@@ -83,6 +83,7 @@ class AppState extends ChangeNotifier {
     NativeBridge.volume = prefs.getDouble('volume') ?? 0.35;
     tunnel.myName = prefs.getString('myName') ?? 'Tama';
     await library.init();
+    unawaited(library.unpackAll());
     final last = prefs.getString('lastToy');
     if (last != null) {
       final e = library.entries.where((x) => x.id == last);

@@ -72,7 +72,9 @@ class ParadiseUnlock extends ChangeNotifier {
     final app = AppState.instance;
     try {
       _set('Unpacking the ROM …');
-      final path = (await app.library.romFile(e)).path;
+      final path = (await app.library.romFile(e).timeout(const Duration(seconds: 90),
+              onTimeout: () => throw 'unpacking took longer than 90 s'))
+          .path;
       _set('Starting …');
       final r = await app.playParadise(e);
       if (r == null) return _done();
