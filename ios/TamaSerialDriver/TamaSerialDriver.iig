@@ -1,0 +1,30 @@
+// Tama's USB serial driver (DriverKit / USBDriverKit).
+//
+// A thin pipe from the app to a USB serial adapter: it opens the device, finds the interface with
+// a bulk IN and a bulk OUT endpoint, and gives the app control transfers and bulk reads/writes
+// through TamaSerialUserClient. The chip specific setup (CH34x, CP210x, FTDI, PL2303, CDC-ACM:
+// baud rate, line control, DTR/RTS) is done by the app with control transfers.
+#ifndef TamaSerialDriver_h
+#define TamaSerialDriver_h
+
+#include <Availability.h>
+#include <DriverKit/IOService.iig>
+
+class TamaSerialDriver: public IOService
+{
+public:
+    virtual bool init() override;
+    virtual kern_return_t Start(IOService * provider) override;
+    virtual kern_return_t Stop(IOService * provider) override;
+    virtual void free() override;
+    virtual kern_return_t NewUserClient(uint32_t type, IOUserClient ** userClient) override;
+
+    kern_return_t OpenPort(uint32_t * vidPid, uint32_t * interfaceNumber) LOCALONLY;
+    kern_return_t ClosePort() LOCALONLY;
+    kern_return_t Control(uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue, uint16_t wIndex,
+                          uint8_t * data, uint16_t length, uint16_t * done) LOCALONLY;
+    kern_return_t BulkWrite(const uint8_t * data, uint32_t length, uint32_t * done) LOCALONLY;
+    kern_return_t BulkRead(uint8_t * data, uint32_t capacity, uint32_t timeoutMs, uint32_t * done) LOCALONLY;
+};
+
+#endif /* TamaSerialDriver_h */

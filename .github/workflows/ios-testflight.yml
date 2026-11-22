@@ -261,6 +261,16 @@ jobs:
             echo "APP_NAME=$name"; echo "APP_SKU=$sku"
           } >> "$GITHUB_ENV"
 
+      # Direct USB serial: the DriverKit driver (ios/TamaSerialDriver) goes into the app as its own
+      # target. Needs the team's DriverKit entitlements (driverkit, transport.usb,
+      # communicates-with-drivers). Set the repository variable DRIVERKIT to 0 to leave it out.
+      - name: Add the USB serial driver
+        if: vars.DRIVERKIT != '0'
+        run: |
+          gem list -i xcodeproj > /dev/null || sudo gem install xcodeproj --no-document
+          TEAM_ID="$TEAM_ID" BUNDLE_ID="$BUNDLE_ID" ruby ../tool/add_driverkit.rb
+          touch build_driverkit_added
+
       - name: Decide version and build
         env:
           INPUT_VERSION: ${{ inputs.version }}
@@ -382,6 +392,18 @@ jobs:
             grep -q "Build input file cannot be found: .*\.mobileprovision" build/xcodebuild.log || break
             echo "New provisioning profile wasn't ready yet; archiving again (try $((attempt + 1)))"
           done
+          if [ "$ok" != true ] && [ -f build_driverkit_added ]; then
+            # The driver did not build or sign (entitlements, provisioning): say why, then archive
+            # the app without it so TestFlight still gets a build.
+            grep -E "error:|requires a provisioning profile|entitlement" build/xcodebuild.log | sort -u | head -20 | while IFS= read -r line; do
+              echo "::warning::USB driver: $(echo "$line" | sed -E "s#^$GITHUB_WORKSPACE/##")"
+            done
+            cp build/xcodebuild.log build/xcodebuild-driverkit.log
+            git checkout -- Runner.xcodeproj
+            rm -f build_driverkit_added
+            echo "### USB serial driver left out of this build (see the warnings)" >> "$GITHUB_STEP_SUMMARY"
+            if archive; then ok=true; fi
+          fi
           if [ "$ok" != true ]; then
             # Surface compiler errors as annotations (readable without downloading the log).
             grep -E ': error: ' build/xcodebuild.log | sort -u | head -30 | while IFS= read -r line; do
@@ -391,6 +413,8 @@ jobs:
             exit 1
           fi
           tail -60 build/xcodebuild.log
+          # the driver target was only for this archive; the recorded project stays as committed
+          git checkout -- Runner.xcodeproj 2>/dev/null || true
 
       - name: Upload to TestFlight
         if: env.UPLOAD == 'true'
@@ -415,6 +439,15 @@ jobs:
             -authenticationKeyIssuerID "$ASC_ISSUER_ID"
           echo "Uploaded $VERSION ($BUILD_NUMBER). It appears in TestFlight after Apple finishes processing (usually 5 to 20 minutes)."
           echo "### TestFlight: uploaded $APP_NAME $VERSION ($BUILD_NUMBER)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the driver build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-logs
+          path: ${{ needs.plan.outputs.dir }}/build/xcodebuild*.log
+          if-no-files-found: ignore
+          retention-days: 7
 
       # TestFlight crash reports need the symbols, and the archive is gone with the runner.
       - name: Keep dSYMs
