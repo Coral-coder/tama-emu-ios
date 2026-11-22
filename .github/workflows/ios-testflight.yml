@@ -263,9 +263,9 @@ jobs:
 
       # Direct USB serial: the DriverKit driver (ios/TamaSerialDriver) goes into the app as its own
       # target. Needs the team's DriverKit entitlements (driverkit, transport.usb,
-      # communicates-with-drivers). Set the repository variable DRIVERKIT to 0 to leave it out.
+      # communicates-with-drivers). Set the repository variable DRIVERKIT to off to leave it out.
       - name: Add the USB serial driver
-        if: vars.DRIVERKIT != '0'
+        if: vars.DRIVERKIT != 'off'
         run: |
           gem list -i xcodeproj > /dev/null || sudo gem install xcodeproj --no-document
           TEAM_ID="$TEAM_ID" BUNDLE_ID="$BUNDLE_ID" ruby ../tool/add_driverkit.rb
