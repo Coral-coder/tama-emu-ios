@@ -10,6 +10,8 @@ import android.hardware.usb.UsbManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import com.hoho.android.usbserial.driver.CdcAcmSerialDriver
+import com.hoho.android.usbserial.driver.UsbSerialDriver
 import com.hoho.android.usbserial.driver.UsbSerialPort
 import com.hoho.android.usbserial.driver.UsbSerialProber
 import com.hoho.android.usbserial.util.SerialInputOutputManager
@@ -60,15 +62,25 @@ class UsbSerialBridge(private val ctx: Context, messenger: BinaryMessenger) : Se
         })
     }
 
-    private fun list(): List<Map<String, Any?>> =
-        UsbSerialProber.getDefaultProber().findAllDrivers(usb).map { d ->
+    /** Every USB device: the known serial chips with their driver, anything else tried as CDC-ACM. */
+    private fun drivers(): List<UsbSerialDriver> {
+        val known = UsbSerialProber.getDefaultProber().findAllDrivers(usb)
+        val ids = known.map { it.device.deviceId }.toSet()
+        val rest = usb.deviceList.values.filter { it.deviceId !in ids }.map { CdcAcmSerialDriver(it) }
+        return known + rest
+    }
+
+    private fun list(): List<Map<String, Any?>> {
+        val known = UsbSerialProber.getDefaultProber().findAllDrivers(usb).map { it.device.deviceId }.toSet()
+        return drivers().map { d ->
             val dev = d.device
-            mapOf("id" to dev.deviceId, "name" to (dev.productName ?: dev.deviceName), "vid" to dev.vendorId, "pid" to dev.productId,
-                "driver" to d.javaClass.simpleName.removeSuffix("SerialDriver"))
+            val kind = d.javaClass.simpleName.removeSuffix("SerialDriver") + if (dev.deviceId in known) "" else " (guessed)"
+            mapOf("id" to dev.deviceId, "name" to (dev.productName ?: dev.deviceName), "vid" to dev.vendorId, "pid" to dev.productId, "driver" to kind)
         }
+    }
 
     private fun open(id: Int, baud: Int, result: MethodChannel.Result) {
-        val driver = UsbSerialProber.getDefaultProber().findAllDrivers(usb).firstOrNull { it.device.deviceId == id }
+        val driver = drivers().firstOrNull { it.device.deviceId == id }
             ?: return result.error("usb", "adapter not found", null)
         val dev = driver.device
         if (!usb.hasPermission(dev)) {
@@ -77,7 +89,7 @@ class UsbSerialBridge(private val ctx: Context, messenger: BinaryMessenger) : Se
         }
         close()
         val conn = usb.openDevice(dev) ?: return result.error("usb", "could not open the adapter", null)
-        val p = driver.ports[0]
+        val p = driver.ports.firstOrNull() ?: return result.error("usb", "no serial port on this device", null)
         p.open(conn)
         p.setParameters(baud, 8, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE)
         try { p.dtr = true; p.rts = true } catch (_: Exception) {}

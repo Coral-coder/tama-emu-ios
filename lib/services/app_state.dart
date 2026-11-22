@@ -5,6 +5,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../emu/machine.dart';
 import '../emu/rom_info.dart';
+import '../paradise/paradise_core.dart';
+import '../paradise/paradise_machine.dart';
 import 'native.dart';
 import 'rom_library.dart';
 import 'serial/serial_hub.dart';
@@ -38,6 +40,10 @@ class AppState extends ChangeNotifier {
   TamaMachine? machine;
   RomEntry? machineRom;
 
+  /// The running Tamagotchi Paradise (Capybara core), when one is played.
+  ParadiseMachine? paradise;
+  RomEntry? paradiseRom;
+
   LinkMode linkMode = LinkMode.off;
   StreamSubscription<Uint8List>? _uartSub, _tunnelSub;
 
@@ -48,11 +54,9 @@ class AppState extends ChangeNotifier {
 
   late SharedPreferences prefs;
 
-  /// The page the shell shows (0 play, 1 library, 2 studio, 3 hardware, 4 link).
+  /// The page the shell shows (0 play, 1 device, 2 studio, 3 link, 4 more).
   final ValueNotifier<int> page = ValueNotifier(0);
 
-  /// A ROM waiting to be opened by the Studio page.
-  final ValueNotifier<RomEntry?> studioOpen = ValueNotifier(null);
 
   Future<void> init() async {
     prefs = await SharedPreferences.getInstance();
@@ -65,8 +69,14 @@ class AppState extends ChangeNotifier {
     await library.init();
     final last = prefs.getString('lastToy');
     if (last != null) {
-      final e = library.entries.where((x) => x.id == last && x.kind == RomKind.e0c6s4x);
-      if (e.isNotEmpty) await play(e.first);
+      final e = library.entries.where((x) => x.id == last);
+      if (e.isNotEmpty) {
+        if (e.first.kind == RomKind.e0c6s4x) {
+          await play(e.first);
+        } else if (e.first.kind == RomKind.paradise && paradiseKey(e.first) != null) {
+          await playParadise(e.first);
+        }
+      }
     }
   }
 
@@ -82,7 +92,49 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Device key of a Paradise dump (stored per ROM), or null.
+  int? paradiseKey(RomEntry e) {
+    final v = prefs.getString('pkey_${e.id}');
+    return v == null ? null : int.tryParse(v, radix: 16);
+  }
+
+  Future<void> setParadiseKey(RomEntry e, int key) => prefs.setString('pkey_${e.id}', key.toRadixString(16).padLeft(8, '0'));
+
+  /// Starts a Paradise ROM. Returns null when it runs, or the reason it does not
+  /// ('key' when the device key is missing or wrong).
+  Future<String?> playParadise(RomEntry e, {int? key}) async {
+    final core = ParadiseCore.instance;
+    if (core == null) return 'The Paradise core is not in this build (${ParadiseCore.loadError}).';
+    await stopToy();
+    await stopParadise();
+    final dump = await library.romFile(e);
+    final m = ParadiseMachine(core: core, dumpPath: dump.path, savePath: library.paradiseSave(e).path, title: e.name)..sound = sound;
+    final r = m.boot(key ?? paradiseKey(e));
+    if (r != 1) {
+      m.dispose();
+      return r == 0 ? 'key' : m.error;
+    }
+    if (key != null) await setParadiseKey(e, key);
+    paradise = m;
+    paradiseRom = e;
+    await prefs.setString('lastToy', e.id);
+    if (backgroundRun) await NativeBridge.keepAlive(true, title: 'Tama', text: '${e.name} is living');
+    notifyListeners();
+    return null;
+  }
+
+  Future<void> stopParadise() async {
+    final m = paradise;
+    if (m == null) return;
+    paradise = null;
+    paradiseRom = null;
+    m.dispose();
+    await NativeBridge.keepAlive(false);
+    notifyListeners();
+  }
+
   Future<void> play(RomEntry e) async {
+    await stopParadise();
     await stopToy();
     final bytes = await library.bytes(e);
     final profile = ToyProfile(bytes);
@@ -112,6 +164,8 @@ class AppState extends ChangeNotifier {
 
   /// App lifecycle: going to the background / coming back.
   Future<void> onBackground() async {
+    paradise?.save();
+    if (paradise != null && !backgroundRun) paradise!.pause();
     final m = machine;
     if (m == null) return;
     await m.save();
@@ -119,6 +173,7 @@ class AppState extends ChangeNotifier {
   }
 
   void onForeground() {
+    if (paradise != null && !paradise!.running) paradise!.start();
     final m = machine;
     if (m == null) return;
     if (!m.running && !m.pausedByUser) m.start(); // catches up the time away when keepLiving

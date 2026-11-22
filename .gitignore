@@ -58,3 +58,6 @@ app.*.map.json
 *.keystore
 *.iml
 /android/build/
+/assets/paramix/
+/android/app/src/main/jniLibs/
+/native/tama_core/target/

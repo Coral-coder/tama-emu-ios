@@ -198,8 +198,9 @@ jobs:
         if: hashFiles('scripts/fetch-libsignal-ffi.sh') != ''
         run: scripts/fetch-libsignal-ffi.sh
 
-      # Tama is a Flutter app: build the Studio from its submodule, decrypt the built-in ROMs
-      # (ROM_KEY secret) and let Flutter write its config and install the pods.
+      # Tama is a Flutter app with a Rust core (the Capybara Paradise emulator): copy Paramix's
+      # device programs, build the core for iOS, decrypt the built-in ROMs (ROM_KEY secret) and
+      # let Flutter write its config and install the pods.
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: 3.50.1
@@ -211,7 +212,9 @@ jobs:
         env:
           ROM_KEY: ${{ secrets.ROM_KEY }}
         run: |
-          tool/build_studio.sh
+          tool/sync_paramix.sh
+          rustup target add aarch64-apple-ios
+          tool/build_native.sh ios
           tool/roms.sh decrypt
           flutter pub get
           flutter build ios --release --no-codesign --config-only

@@ -5,44 +5,42 @@ Bundle ID `com.lightwave.tama`.
 
 ## What it does
 
-- **Play** – emulates the first-generation toys (Epson E0C6S46 / E0C6S48): Tamagotchi P1, P2,
-  Angel, Mothra, Morino, Umino, Genjintchi, Digital Monster V1–V3 and others, from your own ROM
-  (12 KB or 16 KB). Full screen with icons, A/B/C keys, shake sensor, buzzer, save slots, clock
-  sync, fast forward.
-  - **Runs in the background**: live while the app is in the background (iOS audio session,
-    Android foreground service), and with *keep living* the time the app was closed is played
-    through on the next start, as on a real toy.
-- **Library** – your ROMs: import, export/share, rename, open in the emulator or the Studio. The
-  Paradise flash dumps you own are built into the iOS build (see *Built-in ROMs*).
-- **Studio** – [Paramix Studio](https://github.com/mameise/paramix-studio) by mameise inside the
-  app: open a Paradise ROM, change it, save it, and write it to the device. Its Web Serial calls
-  go to the app's UART connection, its downloads come back to the app (library / share).
-- **UART** – connects to the dongle or a comm board (P-Com and similar): BLE serial bridges
-  (Nordic UART, HM-10), USB serial adapters on Android (CH34x, CP210x, FTDI, PL2303, CDC-ACM via
-  usb-serial-for-android), Wi-Fi serial bridges (TCP). Terminal with text/hex.
-- **Link** – the emulated toy's contact (P20) as Paramix *plink* `D` frames, so it can meet:
-  - a real toy on the UART (a Paradise running V1Emu: Digimon battles), *Emulator ↔ UART*
-  - another phone through the internet with a shared code, *Emulator ↔ Tunnel*
-  - and two real toys can be relayed phone to phone, *UART ↔ Tunnel*.
-  The tunnel is end-to-end encrypted (AES-GCM, key from the code) over a public MQTT relay.
+Everything is native (Flutter + Rust), no web views.
 
-iPhones give apps no access to USB serial adapters; use a BLE or Wi-Fi serial bridge there.
-The Paradise itself (Cortex-M3 SoC) is not emulated; its dumps are for the Studio.
+- **Play** – a cover grid of your games. Paradise dumps show their own edition's field as cover
+  (taken from the ROM's graphics); first-generation toy ROMs show their egg.
+  - **Tamagotchi Paradise**: [Capybara](https://github.com/infinition/capybara) (infinition,
+    GPL-3.0), an ARMv7-M + Sonix SNC73410 emulator that runs the real firmware of your dump, built
+    into the app as a Rust library (`native/tama_core`). Colour screen, A/B/C, the dial, sound, the
+    game's own save. Each dump needs its device key (typed in, or searched on the phone).
+  - **First toys** (E0C6S46/48: P1, P2, Angel, Mothra, Digital Monster V1–V3 …): a Dart port of
+    TamaLIB with Paramix V1Emu's fixes, checked bit-exact against the C core.
+  - Both keep running in the background (iOS audio session, Android foreground service).
+- **Device** – Paramix Studio's device tab, ported natively (`lib/paramix/flash.dart`): over a USB
+  serial adapter on USB OTG (any adapter: CH34x, CP210x, FTDI, PL2303, CDC-ACM, unknown ones tried
+  as CDC-ACM) the app loads Paramix's flash app from the download screen, reads the 16 MB flash
+  into the library, and writes a ROM back: only changed sectors, keeping the saves, with the
+  rescue start. Checked against Paramix's own bytes and a simulated device (`test/`).
+- **Studio** – the ROMs: details (edition, fields, pictures decoded from the ROM), play, export,
+  write to the device. More of Paramix (saves, emulator installs, characters, fields) is being
+  ported.
+- **Link** – emulator ↔ UART ↔ internet tunnel (plink frames, AES-GCM tunnel with a code).
+
+iPhones give apps no access to USB serial adapters (Android does); on an iPhone use a BLE or Wi-Fi
+serial bridge (connections page under Device).
 
 ## Layout
 
 | Path | What |
 | --- | --- |
-| `lib/emu/cpu.dart` | E0C6S46/48 CPU: Dart port of TamaLIB with Paramix V1Emu's fixes |
-| `lib/emu/hw.dart`, `rom_info.dart`, `rom_db.dart` | LCD wiring per toy, ROM detection, icons (from Paramix) |
-| `lib/emu/machine.dart` | the running toy: pacing, sound, keys, clock, saves, link |
-| `lib/emu/plink.dart` | Paramix plink frames and edge playback |
-| `lib/services/` | library, UART transports, tunnel, link routing, native bridge |
-| `lib/ui/` | screens |
-| `assets/studio/bridge.js` | Web Serial / download bridge inlined into the Studio |
-| `third_party/paramix-studio` | submodule: Paramix Studio (built by `tool/build_studio.sh`) |
-| `third_party/tamalib` | submodule: upstream TamaLIB, for reference |
-| `tool/difftest/` | runs the Dart core against the C core on random programs (bit-exact) |
+| `native/tama_core` | Rust: the Capybara emulator core with a C ABI (`tool/build_native.sh`) |
+| `lib/paradise/` | Dart FFI binding and the running Paradise |
+| `lib/paramix/` | native ports of Paramix Studio: device protocol, editions, ROM assets / sprites |
+| `lib/emu/` | first-generation toy emulator (TamaLIB port), plink |
+| `lib/services/`, `lib/ui/` | library, UART transports, tunnel; screens |
+| `third_party/capybara` | submodule: Capybara (Paradise emulator) |
+| `third_party/paramix-studio` | submodule: Paramix Studio (reference and its device programs, `tool/sync_paramix.sh`) |
+| `third_party/tamalib` | submodule: upstream TamaLIB |
 | `roms/enc/` | built-in ROMs, encrypted |
 
 ## Building
@@ -52,7 +50,7 @@ git submodule update --init --recursive
 ```
 
 ```bash
-tool/build_studio.sh
+tool/sync_paramix.sh && tool/build_native.sh android   # or ios / host
 ```
 
 ```bash
@@ -87,7 +85,7 @@ it builds without them. The public Android release never contains them. Add one 
 
 ## Licences
 
-Tama is free software under the GNU GPL v3 (`LICENSE`). It contains a Dart port of TamaLIB
+Tama is free software under the GNU GPL v3 (`LICENSE`). It contains Capybara (© infinition, GPL-3.0) as a library, a Dart port of TamaLIB
 (© Jean-Christophe Rona, GPL-2.0-or-later) with changes by mameise from Paramix Studio
-(GPL-3.0), Paramix Studio itself (GPL-3.0) and its menu icons. Tamagotchi and Digital Monster are
+(GPL-3.0), native ports of Paramix Studio (GPL-3.0) with its device programs and menu icons. Tamagotchi and Digital Monster are
 trademarks of BANDAI; this project is not affiliated with them. Use only ROMs you own.

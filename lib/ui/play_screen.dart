@@ -4,10 +4,11 @@ import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../emu/machine.dart';
-import '../emu/rom_info.dart';
 import '../services/app_state.dart';
 import '../services/native.dart';
+import 'games_screen.dart';
 import 'lcd_view.dart';
+import 'paradise_view.dart';
 import 'theme.dart';
 
 class PlayScreen extends StatelessWidget {
@@ -19,60 +20,12 @@ class PlayScreen extends StatelessWidget {
     return ListenableBuilder(
       listenable: app,
       builder: (context, _) {
+        final p = app.paradise;
+        if (p != null) return ParadiseView(machine: p, rom: app.paradiseRom!);
         final m = app.machine;
-        if (m == null) return const _NoToy();
+        if (m == null) return const GamesScreen();
         return _Toy(machine: m);
       },
-    );
-  }
-}
-
-class _NoToy extends StatelessWidget {
-  const _NoToy();
-
-  @override
-  Widget build(BuildContext context) {
-    final app = AppState.instance;
-    return Scaffold(
-      appBar: AppBar(title: const Text('Tama')),
-      body: ListenableBuilder(
-        listenable: app.library,
-        builder: (context, _) {
-          final toys = app.library.entries.where((e) => e.kind == RomKind.e0c6s4x).toList();
-          return ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              const SizedBox(height: 24),
-              const Icon(Icons.egg_outlined, size: 72, color: kAmber),
-              const SizedBox(height: 12),
-              Text('No toy running', textAlign: TextAlign.center, style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(height: 8),
-              const Text(
-                'The emulator plays E0C6S46 / E0C6S48 ROMs: Tamagotchi P1, P2, Angel, Mothra, '
-                'Digital Monster V1–V3 and the other first-generation toys. Import your ROM '
-                '(12 KB or 16 KB) in the Library.',
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 20),
-              for (final e in toys)
-                Card(
-                  child: ListTile(
-                    leading: const Icon(Icons.play_arrow_rounded, color: kAmber),
-                    title: Text(e.name),
-                    subtitle: Text(e.bundled ? 'built in' : 'imported'),
-                    onTap: () => app.play(e),
-                  ),
-                ),
-              const SizedBox(height: 12),
-              FilledButton.icon(
-                onPressed: () => app.page.value = 1,
-                icon: const Icon(Icons.library_books_outlined),
-                label: const Text('Open the library'),
-              ),
-            ],
-          );
-        },
-      ),
     );
   }
 }
@@ -208,7 +161,7 @@ class _ToyState extends State<_Toy> {
           label: Text('${m.speed}×'),
         ),
         OutlinedButton.icon(
-          onPressed: () => AppState.instance.page.value = 4,
+          onPressed: () => AppState.instance.page.value = 3,
           icon: Icon(m.linked ? Icons.link : Icons.link_off),
           label: const Text('Link'),
         ),

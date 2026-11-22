@@ -1,5 +1,5 @@
 name: tama_tools
-description: "Tama: Tamagotchi emulator, Paramix Studio and UART tools"
+description: "Tama: Tamagotchi Paradise and first-generation emulators, native Paramix tools, UART"
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -35,9 +35,6 @@ dependencies:
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
-  webview_flutter: ^4.14.1
-  webview_flutter_android: ^4.14.1
-  webview_flutter_wkwebview: ^3.27.2
   file_picker: ^13.4.1
   path_provider: ^2.1.6
   share_plus: ^13.3.1
@@ -47,6 +44,9 @@ dependencies:
   shared_preferences: ^2.5.6
   permission_handler: ^13.0.2
   typed_data: ^1.4.0
+  crypto: ^3.0.8
+  image: ^4.13.1
+  ffi: ^2.2.0
 
 dev_dependencies:
   flutter_test:
@@ -71,7 +71,7 @@ flutter:
   uses-material-design: true
 
   assets:
-    - assets/studio/index.html
+    - assets/paramix/
     - assets/roms/
 
   # To add assets to your application, add an assets section, like this:

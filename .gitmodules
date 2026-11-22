@@ -4,3 +4,6 @@
 [submodule "third_party/tamalib"]
 	path = third_party/tamalib
 	url = https://github.com/jcrona/tamalib.git
+[submodule "third_party/capybara"]
+	path = third_party/capybara
+	url = https://github.com/infinition/capybara.git

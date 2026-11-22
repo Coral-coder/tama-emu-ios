@@ -5,7 +5,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'package:image/image.dart' as img;
+
 import '../emu/rom_info.dart';
+import '../paramix/sprites.dart';
 
 /// One ROM in the library: built into the app (assets/roms) or imported by the user.
 class RomEntry {
@@ -153,5 +156,47 @@ class RomLibrary extends ChangeNotifier {
   }
 
   File saveFileFor(String toyId) => File('${saveDir.path}/$toyId.state');
+
+  /// The ROM as a file on disk (the Paradise core reads its dump from a path). Built-in ROMs are
+  /// unpacked once into the app's documents.
+  Future<File> romFile(RomEntry e) async {
+    if (e.file != null) return e.file!;
+    final f = File('${docs.path}/unpacked/${e.id}.bin');
+    if (!await f.exists() || await f.length() != e.size) {
+      await f.parent.create(recursive: true);
+      await f.writeAsBytes(await bytes(e), flush: true);
+    }
+    return f;
+  }
+
+  /// Cover picture of a ROM (PNG), taken from the ROM's own graphics: a Paradise shows its
+  /// edition's field. Null for ROMs without pictures (the first toys draw their own).
+  final Map<String, Future<File?>> _covers = {};
+  Future<File?> cover(RomEntry e) => _covers.putIfAbsent(e.id, () => _makeCover(e));
+
+  Future<File?> _makeCover(RomEntry e) async {
+    if (e.kind != RomKind.paradise) return null;
+    final f = File('${docs.path}/covers/${e.id}.png');
+    if (await f.exists()) return f;
+    try {
+      final png = await compute(_coverPng, await bytes(e));
+      if (png == null) return null;
+      await f.parent.create(recursive: true);
+      await f.writeAsBytes(png, flush: true);
+      return f;
+    } catch (err) {
+      debugPrint('cover ${e.name}: $err');
+      return null;
+    }
+  }
+
+  static Uint8List? _coverPng(Uint8List rom) {
+    final c = paradiseCover(rom);
+    if (c == null) return null;
+    final im = img.Image.fromBytes(width: c.w, height: c.h, bytes: c.data.buffer, numChannels: 4);
+    return img.encodePng(img.copyResize(im, width: 256, height: 256, interpolation: img.Interpolation.average));
+  }
+
+  File paradiseSave(RomEntry e) => File('${saveDir.path}/paradise-${e.id}.save');
   File slotFileFor(String toyId, int slot) => File('${saveDir.path}/$toyId.slot$slot');
 }

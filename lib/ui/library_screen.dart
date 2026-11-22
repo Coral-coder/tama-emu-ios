@@ -5,6 +5,8 @@ import 'package:share_plus/share_plus.dart';
 import '../emu/rom_info.dart';
 import '../services/app_state.dart';
 import '../services/rom_library.dart';
+import 'games_screen.dart';
+import 'rom_detail_screen.dart';
 import 'theme.dart';
 
 class LibraryScreen extends StatelessWidget {
@@ -15,7 +17,7 @@ class LibraryScreen extends StatelessWidget {
     final app = AppState.instance;
     final lib = app.library;
     return Scaffold(
-      appBar: AppBar(title: const Text('Library')),
+      appBar: AppBar(title: const Text('Studio · ROMs')),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _import(context),
         icon: const Icon(Icons.file_upload_outlined),
@@ -55,8 +57,8 @@ class LibraryScreen extends StatelessWidget {
 
   static String _kindTitle(RomKind k) => switch (k) {
         RomKind.e0c6s4x => 'Toys (play in the emulator)',
-        RomKind.paradise => 'Tamagotchi Paradise flash images (Paramix Studio)',
-        RomKind.other => 'Other files (Paramix Studio material)',
+        RomKind.paradise => 'Tamagotchi Paradise flash images',
+        RomKind.other => 'Other files (emulator firmware, figures …)',
       };
 
   static Future<void> _import(BuildContext context) async {
@@ -88,14 +90,14 @@ class _RomTile extends StatelessWidget {
         ),
         title: Text(e.name),
         subtitle: Text('$size · ${e.bundled ? 'built in' : 'imported'}${e.note != null ? ' · ${e.note}' : ''}'),
-        onTap: () => e.kind == RomKind.e0c6s4x ? _play(context) : _studio(),
+        onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => RomDetailScreen(entry: e))),
         trailing: PopupMenuButton<String>(
           onSelected: (v) async {
             switch (v) {
               case 'play':
                 await _play(context);
               case 'studio':
-                _studio();
+                if (context.mounted) await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => RomDetailScreen(entry: e)));
               case 'share':
                 final f = await app.library.exportFile(e);
                 await SharePlus.instance.share(ShareParams(files: [XFile(f.path)], subject: e.name));
@@ -106,8 +108,8 @@ class _RomTile extends StatelessWidget {
             }
           },
           itemBuilder: (_) => [
-            if (e.kind == RomKind.e0c6s4x) const PopupMenuItem(value: 'play', child: Text('Play')),
-            const PopupMenuItem(value: 'studio', child: Text('Open in Paramix Studio')),
+            if (e.kind != RomKind.other) const PopupMenuItem(value: 'play', child: Text('Play')),
+            const PopupMenuItem(value: 'studio', child: Text('Details')),
             const PopupMenuItem(value: 'share', child: Text('Export / share')),
             if (!e.bundled) const PopupMenuItem(value: 'rename', child: Text('Rename')),
             if (!e.bundled) const PopupMenuItem(value: 'delete', child: Text('Delete')),
@@ -117,17 +119,7 @@ class _RomTile extends StatelessWidget {
     );
   }
 
-  Future<void> _play(BuildContext context) async {
-    final app = AppState.instance;
-    await app.play(entry);
-    app.page.value = 0;
-  }
-
-  void _studio() {
-    final app = AppState.instance;
-    app.studioOpen.value = entry;
-    app.page.value = 2;
-  }
+  Future<void> _play(BuildContext context) => startGame(context, entry);
 
   Future<void> _rename(BuildContext context) async {
     final c = TextEditingController(text: entry.name);

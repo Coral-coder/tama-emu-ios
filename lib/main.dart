@@ -2,11 +2,10 @@ import 'package:material_ui/material_ui.dart';
 
 import 'services/app_state.dart';
 import 'ui/about_screen.dart';
-import 'ui/hardware_screen.dart';
+import 'ui/device_screen.dart';
 import 'ui/library_screen.dart';
 import 'ui/link_screen.dart';
 import 'ui/play_screen.dart';
-import 'ui/studio_screen.dart';
 import 'ui/theme.dart';
 
 Future<void> main() async {
@@ -82,11 +81,10 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
         return Scaffold(
           body: IndexedStack(index: page, children: [
             const PlayScreen(),
-            lazy(1, const LibraryScreen()),
-            lazy(2, const StudioScreen()),
-            lazy(3, const HardwareScreen()),
-            lazy(4, const LinkScreen()),
-            lazy(5, const AboutScreen()),
+            lazy(1, const DeviceScreen()),
+            lazy(2, const LibraryScreen()),
+            lazy(3, const LinkScreen()),
+            lazy(4, const AboutScreen()),
           ]),
           bottomNavigationBar: NavigationBar(
             selectedIndex: page,
@@ -94,9 +92,8 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
             labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
             destinations: const [
               NavigationDestination(icon: Icon(Icons.egg_outlined), selectedIcon: Icon(Icons.egg), label: 'Play'),
-              NavigationDestination(icon: Icon(Icons.library_books_outlined), label: 'Library'),
+              NavigationDestination(icon: Icon(Icons.usb), label: 'Device'),
               NavigationDestination(icon: Icon(Icons.auto_fix_high_outlined), label: 'Studio'),
-              NavigationDestination(icon: Icon(Icons.cable_outlined), label: 'UART'),
               NavigationDestination(icon: Icon(Icons.hub_outlined), label: 'Link'),
               NavigationDestination(icon: Icon(Icons.tune), label: 'More'),
             ],
