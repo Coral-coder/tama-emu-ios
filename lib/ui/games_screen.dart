@@ -50,15 +50,60 @@ class GamesScreen extends StatelessWidget {
   }
 }
 
+/// Picks ROM files and adds them to the library, with a progress dialog and every error shown.
 Future<void> importRoms(BuildContext context) async {
-  final res = await FilePicker.pickFiles(type: FileType.any);
-  var n = 0;
-  for (final f in res) {
-    await AppState.instance.library.import(await f.readAsBytes(), f.name);
-    n++;
+  List<PlatformFile> picked;
+  try {
+    picked = await FilePicker.pickFiles(type: FileType.any);
+  } catch (e) {
+    if (context.mounted) await _importError(context, 'The file picker failed: $e');
+    return;
   }
-  if (context.mounted && n > 0) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Imported $n file${n == 1 ? '' : 's'}')));
+  if (picked.isEmpty || !context.mounted) return;
+  final status = ValueNotifier<String>('Importing …');
+  showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (c) => AlertDialog(
+      content: Row(children: [
+        const CircularProgressIndicator(),
+        const SizedBox(width: 16),
+        Expanded(child: ValueListenableBuilder<String>(valueListenable: status, builder: (_, v, _) => Text(v))),
+      ]),
+    ),
+  );
+  final done = <String>[];
+  final failed = <String>[];
+  for (final f in picked) {
+    status.value = 'Importing ${f.name} …';
+    try {
+      // the picker hands a copy in the app's temporary folder; read it by its path
+      final path = f.path;
+      final b = path != null ? await File(path).readAsBytes() : await f.readAsBytes();
+      if (b.isEmpty) throw const FileSystemException('the file is empty (still in iCloud?)');
+      final e = await AppState.instance.library.import(b, f.name);
+      done.add(e.name);
+    } catch (e) {
+      failed.add('${f.name}: $e');
+    }
+  }
+  if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
+  if (!context.mounted) return;
+  if (failed.isNotEmpty) {
+    await _importError(context, failed.join('\n\n'));
+  } else {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Added: ${done.join(', ')}')));
+  }
 }
+
+Future<void> _importError(BuildContext context, String text) => showDialog<void>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('Import failed'),
+        content: SingleChildScrollView(child: SelectableText(text)),
+        actions: [TextButton(onPressed: () => Navigator.pop(c), child: const Text('OK'))],
+      ),
+    );
 
 Future<void> startGame(BuildContext context, RomEntry e) async {
   final app = AppState.instance;

@@ -10,6 +10,14 @@ import 'ui/theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // In release builds a failing widget is a grey box; show what went wrong instead.
+  ErrorWidget.builder = (d) => Material(
+        color: const Color(0xFF2A0D0D),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: SelectableText('Something went wrong here:\n\n${d.exceptionAsString()}', style: const TextStyle(color: Colors.white, fontSize: 13)),
+        ),
+      );
   runApp(const TamaApp());
   try {
     await AppState.instance.init();

@@ -1,4 +1,3 @@
-import 'package:file_picker/file_picker.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -61,16 +60,7 @@ class LibraryScreen extends StatelessWidget {
         RomKind.other => 'Other files (emulator firmware, figures …)',
       };
 
-  static Future<void> _import(BuildContext context) async {
-    final res = await FilePicker.pickFiles(type: FileType.any);
-    var n = 0;
-    for (final f in res) {
-      final b = await f.readAsBytes();
-      await AppState.instance.library.import(b, f.name);
-      n++;
-    }
-    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Imported $n file${n == 1 ? '' : 's'}')));
-  }
+  static Future<void> _import(BuildContext context) => importRoms(context);
 }
 
 class _RomTile extends StatelessWidget {
