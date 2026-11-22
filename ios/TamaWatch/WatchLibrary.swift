@@ -6,6 +6,7 @@ struct WatchGame: Codable, Identifiable, Equatable {
   var name: String
   var key: UInt32
   var savedAt: Double // when the save was last written (seconds since 1970)
+  var care: UInt32? // daycare kept up by itself (1 feed, 2 play, 4 cure), as set on the phone
 }
 
 /// The games on the watch: Documents/games/<id>/{dump.bin, game.save, meta.json}.
@@ -57,6 +58,7 @@ final class WatchLibrary: ObservableObject {
     var g = game(id) ?? WatchGame(id: id, name: m["name"] as? String ?? id, key: 0x5AAF34FB, savedAt: 0)
     if let n = m["name"] as? String { g.name = n }
     if let k = m["key"] as? NSNumber { g.key = k.uint32Value }
+    if let c = m["care"] as? NSNumber { g.care = c.uint32Value }
     let target = kind == "dump" ? dump(id) : save(id)
     if kind == "save" {
       let stamp = (m["savedAt"] as? NSNumber)?.doubleValue ?? Date().timeIntervalSince1970

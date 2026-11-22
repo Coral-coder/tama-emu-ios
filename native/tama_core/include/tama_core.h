@@ -29,3 +29,8 @@ void tama_auto_date(Tama *t, uint32_t seconds);
 void tama_advance(Tama *t, uint32_t seconds);
 /// Wakes the console from its power-save sleep. 1 when it was asleep.
 int32_t tama_wake(Tama *t);
+/// One step of the dial (right 1, left 0), queued and played in console time.
+void tama_turn(Tama *t, int32_t right);
+/// Care kept up by itself every 10 s of game time: 1 feed, 2 play, 4 cure (0 off).
+void tama_auto_care(Tama *t, uint32_t what);
+int32_t tama_care(Tama *t, uint32_t what);

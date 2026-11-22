@@ -36,6 +36,13 @@ fn main() {
                     let pin = match w { "A" => 0x09, "B" => 0x0B, "C" => 0x0A, _ => 0x08 };
                     tama_core::tama_press(t, pin); run(0.15); tama_core::tama_release(t, pin); run(0.6);
                 }
+                "q" => { let mut o=[0i32;8]; tama_core::tama_pet(t, o.as_mut_ptr()); println!("pet found {} id {:04X} stage {} hunger {} happy {} sick {} level {} block {:08X}", o[0],o[1],o[2],o[3],o[4],o[5],o[6],o[7]); }
+                "R1" | "L1" => { tama_core::tama_turn(t, (w == "R1") as i32); run(0.1); }
+                "rs" | "ls" => {
+                    let (x, y) = if w == "rs" { (0x20, 0x21) } else { (0x21, 0x20) };
+                    tama_core::tama_press(t, x); run(0.05); tama_core::tama_press(t, y); run(0.05);
+                    tama_core::tama_release(t, x); run(0.05); tama_core::tama_release(t, y); run(0.3);
+                }
                 "r" | "l" => {
                     let (x, y) = if w == "r" { (0x20, 0x21) } else { (0x21, 0x20) };
                     tama_core::tama_press(t, x); run(0.02); tama_core::tama_press(t, y); run(0.02);
@@ -43,6 +50,9 @@ fn main() {
                 }
                 "d" => { let mut d=[0u32;3]; tama_core::tama_debug(t, d.as_mut_ptr()); println!("pc {:08X} sys300 {:X} watchdog {} running {} sleeping {}", d[0], d[1], d[2], tama_core::tama_running(t), tama_core::tama_sleeping(t)); }
                 "R" => tama_core::tama_reset(t),
+                "Z" => tama_core::tama_auto_care(t, 7),
+                "F" => println!("care {}", tama_core::tama_care(t, 7)),
+                "D" => { let a1 = CString::new(format!("{}/sram{}.bin", a[2], n)).unwrap(); let a2 = CString::new(format!("{}/flash{}.bin", a[2], n)).unwrap(); tama_core::tama_debug_dump(t, a1.as_ptr(), a2.as_ptr()); n += 1; }
                 "s" => { shot(t, &format!("{}/{:03}.ppm", a[2], n)); n += 1; }
                 _ if w.starts_with('w') => run(w[1..].parse().unwrap()),
                 _ => panic!("bad word {w}"),

@@ -21,8 +21,6 @@ final class Console: ObservableObject {
   private let fb = UnsafeMutablePointer<UInt16>.allocate(capacity: 128 * 128)
   private var rgba = [UInt8](repeating: 255, count: 128 * 128 * 4)
   private let tone = WatchTone()
-  private var turning = false
-  private var turns: [Bool] = []
   private let cps = Double(tama_cycles_per_second())
 
   static let pinA: UInt32 = 0x09, pinB: UInt32 = 0x0B, pinC: UInt32 = 0x0A, pinWheel: UInt32 = 0x08
@@ -46,6 +44,7 @@ final class Console: ObservableObject {
     tama_open_save(t, lib.save(g.id).path)
     tama_sync_clock(t, Console.localSeconds())
     tama_auto_date(t, 180)
+    tama_auto_care(t, g.care ?? 0)
     self.t = t
     playing = g.id
     error = nil
@@ -172,24 +171,10 @@ final class Console: ObservableObject {
     tama_release(t, pin)
   }
 
-  /// One detent of the crown: a step of the wheel (the encoder lines in quadrature), queued.
+  /// One detent of the crown: a step of the wheel, played by the core in console time.
   func turn(_ right: Bool) {
-    turns.append(right)
-    if !turning { nextTurn() }
-  }
-
-  private func nextTurn() {
-    guard let t = t, !turns.isEmpty else { turning = false; return }
-    turning = true
-    let right = turns.removeFirst()
-    let a = right ? Console.enc1 : Console.enc2, b = right ? Console.enc2 : Console.enc1
-    let seq: [(UInt32, Bool)] = [(a, true), (b, true), (a, false), (b, false)]
-    for (i, s) in seq.enumerated() {
-      DispatchQueue.main.asyncAfter(deadline: .now() + 0.018 * Double(i)) {
-        s.1 ? tama_press(t, s.0) : tama_release(t, s.0)
-      }
-    }
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.018 * 4) { [weak self] in self?.nextTurn() }
+    guard let t = t else { return }
+    tama_turn(t, right ? 1 : 0)
   }
 }
 

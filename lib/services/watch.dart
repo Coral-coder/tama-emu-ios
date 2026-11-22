@@ -73,6 +73,7 @@ class WatchLink {
         'id': e.id,
         'name': e.name,
         'key': app.paradiseKey(e) ?? 0x5AAF34FB,
+        'care': app.autoCare(e),
         'dump': dump.path,
         'sendDump': !_sentDumps.contains(e.id),
         'save': app.library.paradiseSave(e).path,

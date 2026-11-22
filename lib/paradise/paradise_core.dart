@@ -35,6 +35,12 @@ typedef _ClockD = int Function(Pointer<_Tama>, int);
 typedef _AdvN = Void Function(Pointer<_Tama>, Uint32);
 typedef _AdvD = void Function(Pointer<_Tama>, int);
 typedef _SoundsN = Uint32 Function(Pointer<_Tama>);
+typedef _PetN = Void Function(Pointer<_Tama>, Pointer<Int32>);
+typedef _PetD = void Function(Pointer<_Tama>, Pointer<Int32>);
+typedef _BlockN = Int32 Function(Pointer<_Tama>, Pointer<Uint8>);
+typedef _BlockD = int Function(Pointer<_Tama>, Pointer<Uint8>);
+typedef _ClockCareN = Int32 Function(Pointer<_Tama>, Uint32);
+typedef _ClockCareD = int Function(Pointer<_Tama>, int);
 typedef _KeyN = Int32 Function(Pointer<Utf8>, Uint32, Pointer<Uint32>);
 typedef _KeyD = int Function(Pointer<Utf8>, int, Pointer<Uint32>);
 
@@ -65,6 +71,11 @@ class ParadiseCore {
         _advance = l.lookupFunction<_AdvN, _AdvD>('tama_advance'),
         _autoDate = l.lookupFunction<_AdvN, _AdvD>('tama_auto_date'),
         _wake = l.lookupFunction<_IntN, _IntD>('tama_wake'),
+        _turn = l.lookupFunction<_PinN, _PinD>('tama_turn'),
+        _pet = l.lookupFunction<_PetN, _PetD>('tama_pet'),
+        _care = l.lookupFunction<_ClockCareN, _ClockCareD>('tama_care'),
+        _autoCare = l.lookupFunction<_PinN, _PinD>('tama_auto_care'),
+        _block = l.lookupFunction<_BlockN, _BlockD>('tama_block'),
         _sounds = l.lookupFunction<_SoundsN, _IntD>('tama_sounds'),
         _findKey = l.lookupFunction<_KeyN, _KeyD>('tama_find_key'),
         _keyProgress = l.lookupFunction<_U64N, _U64D>('tama_find_key_progress'),
@@ -101,6 +112,11 @@ class ParadiseCore {
   final _AdvD _advance;
   final _AdvD _autoDate;
   final _IntD _wake;
+  final _PinD _turn;
+  final _PetD _pet;
+  final _ClockCareD _care;
+  final _PinD _autoCare;
+  final _BlockD _block;
   final _IntD _sounds;
   final _KeyD _findKey;
   final _U64D _keyProgress;
@@ -154,6 +170,39 @@ class ParadiseHandle {
   double note() => core._note(_t);
   /// Sounds the console started so far.
   int get sounds => core._sounds(_t);
+  /// One step of the dial, played on the encoder lines in console time (queued).
+  void turn(bool right) => core._turn(_t, right ? 1 : 0);
+
+  /// The pet, live from the game's memory; null when the game has no pet (yet).
+  PetState? pet() {
+    final o = calloc<Int32>(8);
+    try {
+      core._pet(_t, o);
+      if (o[0] != 1) return null;
+      return PetState(character: o[1], stage: o[2], hunger: o[3], happy: o[4], sick: o[5], level: o[6], block: o[7]);
+    } finally {
+      calloc.free(o);
+    }
+  }
+
+  static const careFeed = 1, carePlay = 2, careCure = 4;
+
+  /// Feeds / plays / cures now (bits [careFeed], [carePlay], [careCure]). False: no pet.
+  bool care(int what) => core._care(_t, what) == 1;
+
+  /// Care kept up by itself every 10 s of game time (0: off).
+  void autoCare(int what) => core._autoCare(_t, what);
+
+  /// The game's settings block as it is in memory (4 KB), for looking inside; null if not found.
+  Uint8List? block() {
+    final b = calloc<Uint8>(4096);
+    try {
+      return core._block(_t, b) == 1 ? Uint8List.fromList(b.asTypedList(4096)) : null;
+    } finally {
+      calloc.free(b);
+    }
+  }
+
   /// Wakes the console from its power-save sleep (its screen comes back on).
   bool wake() => core._wake(_t) == 1;
 
@@ -190,4 +239,13 @@ class ParadiseHandle {
     _t = nullptr;
     calloc.free(_fb);
   }
+}
+
+/// The pet as the game keeps it: hunger 0..6, happiness 0..20.
+class PetState {
+  PetState({required this.character, required this.stage, required this.hunger, required this.happy, required this.sick, required this.level, required this.block});
+  final int character, stage, hunger, happy, sick, level, block;
+  bool get exists => character != 0;
+  static const stages = ['egg', 'baby', 'child', 'teen', 'adult', 'senior', '6', '7'];
+  String get stageName => stages[stage & 7];
 }

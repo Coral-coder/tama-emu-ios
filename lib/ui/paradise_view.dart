@@ -9,6 +9,7 @@ import '../services/app_state.dart';
 import '../services/native.dart';
 import '../services/rom_library.dart';
 import '../services/watch.dart';
+import 'care_sheet.dart';
 import 'screen_filters.dart';
 import 'theme.dart';
 
@@ -129,6 +130,11 @@ class _ParadiseViewState extends State<ParadiseView> {
       appBar: AppBar(
         title: Text(widget.rom.name),
         actions: [
+          IconButton(
+            tooltip: 'Care',
+            icon: const Icon(Icons.favorite_rounded),
+            onPressed: () => showCare(context, m, widget.rom.id),
+          ),
           IconButton(
             tooltip: 'Type a name',
             icon: const Icon(Icons.keyboard_rounded),

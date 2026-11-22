@@ -117,6 +117,10 @@ class AppState extends ChangeNotifier {
     return (v == null ? null : int.tryParse(v, radix: 16)) ?? e.deviceKey ?? kParadiseKey;
   }
 
+  /// Care kept up by itself for a game (bits: 1 feed, 2 play, 4 cure).
+  int autoCare(RomEntry e) => prefs.getInt('care_${e.id}') ?? 0;
+  Future<void> setAutoCare(String id, int v) => prefs.setInt('care_$id', v);
+
   Future<void> setParadiseKey(RomEntry e, int key) => prefs.setString('pkey_${e.id}', key.toRadixString(16).padLeft(8, '0'));
 
   /// Starts a Paradise ROM. Returns null when it runs, or the reason it does not
@@ -129,6 +133,7 @@ class AppState extends ChangeNotifier {
     final dump = await library.romFile(e);
     final m = ParadiseMachine(core: core, dumpPath: dump.path, savePath: library.paradiseSave(e).path, title: e.name)
       ..sound = sound
+      ..autoCareBits = autoCare(e)
       ..onCall = (t) => NativeBridge.notify(t.replaceFirst('Tamagotchi Paradise · ', ''), 'Your Tamagotchi is calling you.');
     unawaited(NativeBridge.askToNotify());
     final r = m.boot(key ?? paradiseKey(e));

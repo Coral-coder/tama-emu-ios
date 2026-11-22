@@ -49,6 +49,7 @@ class ParadiseMachine extends ChangeNotifier {
     // the date screens of a new start confirm themselves when the clock could be set (the form
     // is then filled in with the phone's date)
     if (h.syncClock() > 0) h.autoDate();
+    h.autoCare(_autoCare);
     _h = h;
     error = null;
     start();
@@ -143,24 +144,18 @@ class ParadiseMachine extends ChangeNotifier {
   void press(int pin) => _h?.press(pin);
   void release(int pin) => _h?.release(pin);
 
-  /// One step of the wheel (the two encoder lines in quadrature). Steps queue up, so a quick
-  /// spin of the dial plays out step by step.
-  Future<void> _turns = Future.value();
-  Future<void> turn(bool right) => _turns = _turns.then((_) => _step(right));
+  /// One step of the wheel: played by the core in console time, so no edge is lost between
+  /// two frames (a quick spin of the dial queues its steps).
+  Future<void> turn(bool right) async => _h?.turn(right);
 
-  Future<void> _step(bool right) async {
-    final h = _h;
-    if (h == null) return;
-    final a = right ? ParadiseHandle.enc1 : ParadiseHandle.enc2;
-    final b = right ? ParadiseHandle.enc2 : ParadiseHandle.enc1;
-    const step = Duration(milliseconds: 18);
-    h.press(a);
-    await Future<void>.delayed(step);
-    h.press(b);
-    await Future<void>.delayed(step);
-    h.release(a);
-    await Future<void>.delayed(step);
-    h.release(b);
+  PetState? pet() => _h?.pet();
+  bool care(int what) => _h?.care(what) ?? false;
+  Uint8List? block() => _h?.block();
+  int _autoCare = 0;
+  int get autoCareBits => _autoCare;
+  set autoCareBits(int v) {
+    _autoCare = v;
+    _h?.autoCare(v);
   }
 
   /// Types [text] into the game's naming screen (the cursor on the box to fill): for each

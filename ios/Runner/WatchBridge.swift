@@ -36,7 +36,7 @@ final class WatchBridge: NSObject, WCSessionDelegate {
         return result(FlutterError(code: "watch", message: "Install Tama on your Apple Watch first (Watch app on the iPhone → Available apps).", details: nil))
       }
       let id = args["id"] as? String ?? ""
-      var meta: [String: Any] = ["id": id, "name": args["name"] as? String ?? id, "key": args["key"] as? NSNumber ?? 0x5AAF34FB]
+      var meta: [String: Any] = ["id": id, "name": args["name"] as? String ?? id, "key": args["key"] as? NSNumber ?? 0x5AAF34FB, "care": args["care"] as? NSNumber ?? 0]
       if (args["sendDump"] as? Bool) ?? true, let dump = args["dump"] as? String {
         meta["kind"] = "dump"
         WCSession.default.transferFile(URL(fileURLWithPath: dump), metadata: meta)

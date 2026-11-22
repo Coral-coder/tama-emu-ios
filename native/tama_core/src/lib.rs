@@ -37,6 +37,14 @@ pub struct Tama {
     auto_relache: u64,
     veille_depuis: Option<u64>, // since when the core sits parked, powered off
     redemarrages: u32,
+    // the dial: queued steps, played on the encoder lines in emulated time
+    tours: std::collections::VecDeque<bool>,
+    phase: u8,
+    phase_a: u64,
+    // the pet's record in RAM (the settings block's working copy) and the care kept up by itself
+    bloc: Option<(usize, usize)>, // (RAM offset of the block, offset of the pet in it)
+    soins_auto: u32,
+    soins_a: u64,
     boucle: (u32, u64, u32, u32), // a spin loop (pc, since, hits, frames): waiting for the watchdog
 }
 
@@ -64,6 +72,12 @@ pub extern "C" fn tama_new() -> *mut Tama {
         veille_depuis: None,
         boucle: (0, 0, 0, 0),
         redemarrages: 0,
+        tours: std::collections::VecDeque::new(),
+        phase: 0,
+        phase_a: 0,
+        bloc: None,
+        soins_auto: 0,
+        soins_a: 0,
     }))
 }
 
@@ -152,11 +166,142 @@ pub unsafe extern "C" fn tama_run(t: *mut Tama, cycles: u64, budget_ms: u32) -> 
         t.suivre_le_son();
         t.date_auto();
         t.suivre_la_veille();
+        t.tourner();
+        t.soigner();
     }
     done
 }
 
 impl Tama {
+    /// Plays the queued dial steps: each step is the two encoder lines in quadrature (A down,
+    /// B down, A up, B up), 12 ms of console time apart, so the firmware sees every edge.
+    fn tourner(&mut self) {
+        let now = self.m.cpu.cycles;
+        let Some(&droite) = self.tours.front() else { return };
+        if now < self.phase_a {
+            return;
+        }
+        let (a, b) = if droite { (0x20, 0x21) } else { (0x21, 0x20) };
+        match self.phase {
+            0 => self.m.appuyer(a),
+            1 => self.m.appuyer(b),
+            2 => self.m.relacher(a),
+            _ => self.m.relacher(b),
+        }
+        self.phase += 1;
+        self.phase_a = now + CYCLES_PAR_SECONDE as u64 / 1000 * 12;
+        if self.phase == 4 {
+            self.phase = 0;
+            self.tours.pop_front();
+        }
+    }
+
+    /// The settings block in flash: Neon keeps a ring of five pages (the highest number at
+    /// +0xAD0 is the newest), the others 0xEFE000 (copy at 0xEFF000).
+    fn bloc_flash(&self) -> Option<&[u8]> {
+        let f = &self.m.bus.flash.data;
+        let ok = |a: usize| {
+            if a + 0x1000 > f.len() {
+                return false;
+            }
+            let p = &f[a..a + 0x1000];
+            let c = crc16_arc(&p[4..]);
+            u16::from_le_bytes([p[0], p[1]]) == c && u16::from_le_bytes([p[2], p[3]]) == !c
+        };
+        let neon = f.len() >= 0xD86000 && u32::from_le_bytes([f[0xD85000], f[0xD85001], f[0xD85002], f[0xD85003]]) < 0x100;
+        if neon {
+            let mut best: Option<usize> = None;
+            for i in 0..5 {
+                let a = 0xD86000 + i * 0x1000;
+                if !ok(a) {
+                    continue;
+                }
+                let seq = |a: usize| u32::from_le_bytes([f[a + 0xAD0], f[a + 0xAD1], f[a + 0xAD2], f[a + 0xAD3]]);
+                if best.is_none_or(|b| (seq(a).wrapping_sub(seq(b)) as i32) > 0) {
+                    best = Some(a);
+                }
+            }
+            return best.map(|a| &f[a..a + 0x1000]);
+        }
+        [0xEFE000usize, 0xEFF000].into_iter().find(|&a| ok(a)).map(|a| &f[a..a + 0x1000])
+    }
+
+    /// Where the pet's record sits in this edition's settings block.
+    fn place_du_tama(&self) -> usize {
+        let f = &self.m.bus.flash.data;
+        let id = |a: usize| if a + 4 <= f.len() { u32::from_le_bytes([f[a], f[a + 1], f[a + 2], f[a + 3]]) } else { u32::MAX };
+        if id(0xD85000) < 0x100 || (5..=7).contains(&id(0xD29000)) {
+            0x114 // Tropical, Glacier, Neon Planets
+        } else if id(0xD49000) == 4 {
+            0x108 // Jade Forest
+        } else {
+            0x104 // Land, Water, Sky
+        }
+    }
+
+    /// Finds the settings block's working copy in RAM (once): the place where nearly all of its
+    /// 4 KB match the flash copy (the clock differs).
+    fn trouver_bloc(&mut self) -> Option<(usize, usize)> {
+        if let Some(b) = self.bloc {
+            return Some(b);
+        }
+        let page = self.bloc_flash()?.to_vec();
+        let ram = &self.m.bus.sram.data;
+        // a few marks to try first: non-zero bytes past the header
+        let marques: Vec<usize> = (0x20..0x1000).filter(|&i| page[i] != 0 && page[i] != 0xFF).take(32).collect();
+        if marques.len() < 4 {
+            return None;
+        }
+        let mut o = 0;
+        while o + 0x1000 <= ram.len() {
+            if marques.iter().filter(|&&i| ram[o + i] == page[i]).count() >= marques.len() * 3 / 4 {
+                let same = (4..0x1000).filter(|&i| ram[o + i] == page[i]).count();
+                if same > 0x1000 * 9 / 10 {
+                    let b = (o, self.place_du_tama());
+                    self.bloc = Some(b);
+                    return Some(b);
+                }
+            }
+            o += 1;
+        }
+        None
+    }
+
+    /// Care kept up by itself (fed, played with, cured), checked every 10 s of console time.
+    fn soigner(&mut self) {
+        if self.soins_auto == 0 {
+            return;
+        }
+        let now = self.m.cpu.cycles;
+        if now < self.soins_a {
+            return;
+        }
+        self.soins_a = now + 10 * CYCLES_PAR_SECONDE as u64;
+        let f = self.soins_auto;
+        self.soins(f);
+    }
+
+    /// Feeds (bit 1), plays (bit 2), cures (bit 4): the pet's record in RAM, as the game's own
+    /// meal, game and medicine would leave it (hunger 6, happiness 20, not sick).
+    fn soins(&mut self, quoi: u32) -> bool {
+        let Some((o, t)) = self.trouver_bloc() else { return false };
+        let ram = &mut self.m.bus.sram.data;
+        let p = o + t;
+        if ram[p + 4] == 0 && ram[p + 5] == 0 {
+            return false; // no pet (yet)
+        }
+        if quoi & 1 != 0 && ram[p + 0x1C] < 6 {
+            ram[p + 0x1C] = 6;
+        }
+        if quoi & 2 != 0 && ram[p + 0x1D] < 20 {
+            ram[p + 0x1D] = 20;
+        }
+        if quoi & 4 != 0 {
+            ram[p + 0x10] = 0;
+        }
+        true
+    }
+
     /// Deep sleep, on every edition: Capybara knows Water's sleep loop (0x23D0); the others park
     /// elsewhere in PRAM (Neon: 0x224C) after asking the clock block to power the core off (bit 0
     /// of 0x45000300). Either way only a key (or the alarm) wakes the console.
@@ -223,6 +368,7 @@ impl Tama {
     fn recaler(&mut self) {
         let now = self.m.cpu.cycles;
         self.veille_depuis = None;
+        self.bloc = None;
         self.boucle = (0, now, 0, 0);
         self.m.periph.pmu.deep_sleep_active = false;
         self.derniere_recherche = 0;
@@ -231,6 +377,8 @@ impl Tama {
             self.auto_jusqu = now + 60 * CYCLES_PAR_SECONDE as u64;
         }
         self.auto_prochain = 0;
+        self.phase_a = now;
+        self.soins_a = now;
         if self.auto_relache != 0 {
             self.auto_relache = now + 1;
         }
@@ -553,4 +701,71 @@ pub unsafe extern "C" fn tama_reset(t: *mut Tama) {
     t.m.reset();
     t.m.is_running = true;
     t.recaler();
+}
+
+/// Debugging: writes the work RAM and the flash save region to files.
+#[no_mangle]
+pub unsafe extern "C" fn tama_debug_dump(t: *const Tama, sram: *const c_char, flash: *const c_char) -> i32 {
+    let t = &*t;
+    let (Some(a), Some(b)) = (path_of(sram), path_of(flash)) else { return -1 };
+    let _ = std::fs::write(a, &t.m.bus.sram.data);
+    let _ = std::fs::write(b, &t.m.bus.flash.data);
+    0
+}
+
+/// One step of the dial (right or left), queued and played in console time.
+#[no_mangle]
+pub unsafe extern "C" fn tama_turn(t: *mut Tama, right: i32) {
+    let t = &mut *t;
+    if t.tours.is_empty() && t.reveiller() {
+        return; // the first touch wakes the console
+    }
+    if t.tours.len() < 32 {
+        t.tours.push_back(right != 0);
+    }
+}
+
+/// The pet, read live: out[0] found (1/0), [1] character, [2] stage, [3] hunger 0..6,
+/// [4] happiness 0..20, [5] sick, [6] planet level, [7] RAM address of the settings block.
+#[no_mangle]
+pub unsafe extern "C" fn tama_pet(t: *mut Tama, out: *mut i32) {
+    let t = &mut *t;
+    let o = std::slice::from_raw_parts_mut(out, 8);
+    o.fill(0);
+    let Some((b, p)) = t.trouver_bloc() else { return };
+    let ram = &t.m.bus.sram.data;
+    let r = &ram[b + p..b + p + 0x20];
+    let niveau = if p == 0x114 { 0x88 } else { 0x7C };
+    o[0] = 1;
+    o[1] = u16::from_le_bytes([r[4], r[5]]) as i32;
+    o[2] = ((r[0x18] >> 2) & 7) as i32;
+    o[3] = r[0x1C] as i32;
+    o[4] = r[0x1D] as i32;
+    o[5] = r[0x10] as i32;
+    o[6] = (ram[b + niveau] & 15) as i32;
+    o[7] = (0x1800_0000 + b) as i32;
+}
+
+/// Feeds (1), plays (2), cures (4) now. 1 done, 0 no pet found.
+#[no_mangle]
+pub unsafe extern "C" fn tama_care(t: *mut Tama, what: u32) -> i32 {
+    (*t).soins(what) as i32
+}
+
+/// Care kept up by itself, every 10 s of console time: the same bits as tama_care (0: off).
+#[no_mangle]
+pub unsafe extern "C" fn tama_auto_care(t: *mut Tama, what: u32) {
+    let t = &mut *t;
+    t.soins_auto = what;
+    t.soins_a = 0;
+}
+
+/// The settings block's working copy (4096 bytes into out), for looking into the game.
+/// 1 when found.
+#[no_mangle]
+pub unsafe extern "C" fn tama_block(t: *mut Tama, out: *mut u8) -> i32 {
+    let t = &mut *t;
+    let Some((b, _)) = t.trouver_bloc() else { return 0 };
+    std::ptr::copy_nonoverlapping(t.m.bus.sram.data[b..].as_ptr(), out, 0x1000);
+    1
 }
