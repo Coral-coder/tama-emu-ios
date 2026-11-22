@@ -1,0 +1,58 @@
+[
+ {
+  "id": "paradise-glacier",
+  "name": "Tamagotchi Paradise \u00b7 Glacier",
+  "kind": "paradise",
+  "size": 16777216,
+  "file": "paradise-glacier.bin.gz",
+  "note": "your ROM"
+ },
+ {
+  "id": "paradise-jade-forest",
+  "name": "Tamagotchi Paradise \u00b7 Jade Forest",
+  "kind": "paradise",
+  "size": 16777216,
+  "file": "paradise-jade-forest.bin.gz",
+  "note": "your ROM"
+ },
+ {
+  "id": "paradise-land",
+  "name": "Tamagotchi Paradise \u00b7 Land",
+  "kind": "paradise",
+  "size": 16777216,
+  "file": "paradise-land.bin.gz",
+  "note": "your ROM"
+ },
+ {
+  "id": "paradise-neon-planets",
+  "name": "Tamagotchi Paradise \u00b7 Neon Planets",
+  "kind": "paradise",
+  "size": 16777216,
+  "file": "paradise-neon-planets.bin.gz",
+  "note": "your ROM"
+ },
+ {
+  "id": "paradise-sky",
+  "name": "Tamagotchi Paradise \u00b7 Sky",
+  "kind": "paradise",
+  "size": 16777216,
+  "file": "paradise-sky.bin.gz",
+  "note": "your ROM"
+ },
+ {
+  "id": "paradise-tropical",
+  "name": "Tamagotchi Paradise \u00b7 Tropical",
+  "kind": "paradise",
+  "size": 16777216,
+  "file": "paradise-tropical.bin.gz",
+  "note": "your ROM"
+ },
+ {
+  "id": "paradise-water",
+  "name": "Tamagotchi Paradise \u00b7 Water",
+  "kind": "paradise",
+  "size": 16777216,
+  "file": "paradise-water.bin.gz",
+  "note": "your ROM"
+ }
+]

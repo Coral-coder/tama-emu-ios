@@ -1,0 +1,138 @@
+# Tests the app and builds the Android APK; on main (and on v* tags or by hand) it publishes the
+# APK as a GitHub release.
+#
+# Signing: a release keystore from the repository secrets, under whichever of these names they
+# were given (the first non-empty one wins):
+#   keystore (base64 .jks): ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE, KEYSTORE_BASE64, ANDROID_SIGNING_KEY, KEYSTORE
+#   store password:         ANDROID_KEYSTORE_PASSWORD, KEYSTORE_PASSWORD, ANDROID_STORE_PASSWORD, STORE_PASSWORD
+#   key alias:              ANDROID_KEY_ALIAS, KEY_ALIAS, ANDROID_ALIAS, ALIAS
+#   key password:           ANDROID_KEY_PASSWORD, KEY_PASSWORD (falls back to the store password)
+# Without a keystore the APK is signed with a throwaway debug key (installable, but updates then
+# need an uninstall first).
+#
+# The repository is public, so the published APK never contains the built-in ROMs (they stay
+# encrypted in roms/enc); import your ROMs in the app's Library.
+name: Android release
+
+on:
+  push:
+    branches: [main]
+    tags: ["v[0-9]*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.50.1
+          channel: stable
+          cache: true
+
+      - name: Prepare
+        run: |
+          tool/build_studio.sh
+          flutter pub get
+
+      - name: Analyze and test
+        run: |
+          flutter analyze --no-fatal-infos
+          flutter test
+          tool/difftest/run.sh
+
+      - name: Signing key
+        env:
+          KS_1: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_2: ${{ secrets.ANDROID_KEYSTORE }}
+          KS_3: ${{ secrets.KEYSTORE_BASE64 }}
+          KS_4: ${{ secrets.ANDROID_SIGNING_KEY }}
+          KS_5: ${{ secrets.KEYSTORE }}
+          SP_1: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          SP_2: ${{ secrets.KEYSTORE_PASSWORD }}
+          SP_3: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          SP_4: ${{ secrets.STORE_PASSWORD }}
+          KA_1: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KA_2: ${{ secrets.KEY_ALIAS }}
+          KA_3: ${{ secrets.ANDROID_ALIAS }}
+          KA_4: ${{ secrets.ALIAS }}
+          KP_1: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          KP_2: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          first() { for v in "$@"; do if [ -n "$v" ]; then printf '%s' "$v"; return; fi; done; }
+          KS="$(first "$KS_1" "$KS_2" "$KS_3" "$KS_4" "$KS_5")"
+          SP="$(first "$SP_1" "$SP_2" "$SP_3" "$SP_4")"
+          KA="$(first "$KA_1" "$KA_2" "$KA_3" "$KA_4")"
+          KP="$(first "$KP_1" "$KP_2" "$SP")"
+          if [ -z "$KS" ] || [ -z "$SP" ]; then
+            echo "::warning::No Android keystore secrets found; the APK is signed with a debug key."
+            exit 0
+          fi
+          printf '%s' "$KS" | base64 --decode > "$RUNNER_TEMP/release.jks"
+          if [ -z "$KA" ]; then
+            KA=$(keytool -list -keystore "$RUNNER_TEMP/release.jks" -storepass "$SP" 2>/dev/null | awk -F, '/PrivateKeyEntry/{print $1; exit}')
+            echo "Key alias not in the secrets; using the keystore's first key: $KA"
+          fi
+          {
+            echo "storeFile=$RUNNER_TEMP/release.jks"
+            echo "storePassword=$SP"
+            echo "keyAlias=$KA"
+            echo "keyPassword=$KP"
+          } > android/key.properties
+          echo "Release keystore installed (alias $KA)"
+
+      - name: Build the APK
+        run: |
+          version=$(sed -nE 's/^version: *([0-9.]+).*/\1/p' pubspec.yaml)
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then version="${GITHUB_REF_NAME#v}"; fi
+          build=$((GITHUB_RUN_NUMBER + 100))
+          flutter build apk --release --build-name "$version" --build-number "$build"
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk "dist/Tama-$version-$build.apk"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "BUILD=$build" >> "$GITHUB_ENV"
+          ls -l dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Tama-android-${{ env.VERSION }}-${{ env.BUILD }}
+          path: dist/*.apk
+          retention-days: 14
+
+      - name: Publish the release
+        if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref_type == 'tag' || github.event_name == 'workflow_dispatch')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-${{ env.VERSION }}-${{ env.BUILD }}
+          name: Tama ${{ env.VERSION }} (${{ env.BUILD }}) for Android
+          target_commitish: ${{ github.sha }}
+          files: dist/*.apk
+          make_latest: true
+          body: |
+            Tama for Android, built from ${{ github.sha }}.
+
+            Install: download the APK on the phone and open it (allow installs from this source).
+            ROMs are not included in public builds; import your own in the Library.
+
+      - name: Remove keys
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.jks" android/key.properties

@@ -117,6 +117,8 @@ jobs:
       ASC: ${{ github.workspace }}/.github/scripts/asc.py
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Check secrets
         env:
@@ -196,12 +198,31 @@ jobs:
         if: hashFiles('scripts/fetch-libsignal-ffi.sh') != ''
         run: scripts/fetch-libsignal-ffi.sh
 
+      # Tama is a Flutter app: build the Studio from its submodule, decrypt the built-in ROMs
+      # (ROM_KEY secret) and let Flutter write its config and install the pods.
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.50.1
+          channel: stable
+          cache: true
+
+      - name: Prepare the Flutter app
+        working-directory: ${{ github.workspace }}
+        env:
+          ROM_KEY: ${{ secrets.ROM_KEY }}
+        run: |
+          tool/build_studio.sh
+          tool/roms.sh decrypt
+          flutter pub get
+          flutter build ios --release --no-codesign --config-only
+          ls ios
+
       - name: Find the project, scheme and bundle ID
         env:
           XCODE_PROJECT: ${{ vars.XCODE_PROJECT }}
           XCODE_SCHEME: ${{ vars.XCODE_SCHEME }}
           BUNDLE_ID: ${{ vars.BUNDLE_ID }}
-          APP_NAME: ${{ vars.APP_NAME }}
+          APP_NAME: ${{ vars.APP_NAME || 'Tama' }}
           APP_SKU: ${{ vars.APP_SKU }}
         run: |
           project="$XCODE_PROJECT"
@@ -335,7 +356,8 @@ jobs:
         run: |
           mkdir -p build
           archive() {
-            xcodebuild -project "$PROJECT" -scheme "$SCHEME" -configuration Release \
+            if [ -d "${PROJECT%.xcodeproj}.xcworkspace" ]; then where=(-workspace "${PROJECT%.xcodeproj}.xcworkspace"); else where=(-project "$PROJECT"); fi
+            xcodebuild "${where[@]}" -scheme "$SCHEME" -configuration Release \
               -destination 'generic/platform=iOS' -archivePath "build/$SCHEME.xcarchive" \
               -allowProvisioningUpdates \
               -authenticationKeyPath "$ASC_KEY_PATH" \
