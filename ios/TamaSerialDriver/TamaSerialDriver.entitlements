@@ -47,7 +47,5 @@
 			<integer>17224</integer>
 		</dict>
 	</array>
-	<key>com.apple.developer.driverkit.allow-any-userclient-access</key>
-	<true/>
 </dict>
 </plist>
