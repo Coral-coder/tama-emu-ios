@@ -31,6 +31,10 @@ pub struct Tama {
     note: f32,      // the note playing now
     note_vue: f32,  // the last note heard during the last run (short notes are not lost)
     sons: u32,      // sounds started so far (the app notices calls with it)
+    // the date screens of a new start, confirmed by themselves (the form is filled in from the clock)
+    auto_jusqu: u64,
+    auto_prochain: u64,
+    auto_relache: u64,
 }
 
 unsafe fn path_of(p: *const c_char) -> Option<PathBuf> {
@@ -51,6 +55,9 @@ pub extern "C" fn tama_new() -> *mut Tama {
         note: 0.0,
         note_vue: 0.0,
         sons: 0,
+        auto_jusqu: 0,
+        auto_prochain: 0,
+        auto_relache: 0,
     }))
 }
 
@@ -128,11 +135,49 @@ pub unsafe extern "C" fn tama_run(t: *mut Tama, cycles: u64, budget_ms: u32) -> 
             break;
         }
         t.suivre_le_son();
+        t.date_auto();
     }
     t.m.cpu.cycles - start
 }
 
 impl Tama {
+    fn pixel(&self, x: usize, y: usize) -> (i32, i32, i32) {
+        let v = self.m.periph.display.vram.get(y * 128 + x).copied().unwrap_or(0) as i32;
+        (((v >> 11) & 31) * 255 / 31, ((v >> 5) & 63) * 255 / 63, (v & 31) * 255 / 31)
+    }
+
+    fn proche(&self, x: usize, y: usize, c: (i32, i32, i32)) -> bool {
+        let p = self.pixel(x, y);
+        (p.0 - c.0).abs() < 30 && (p.1 - c.1).abs() < 30 && (p.2 - c.2).abs() < 30
+    }
+
+    /// The "set current date / time" notice, or the form under it (year, month, ... with + OK <-).
+    fn ecran_de_date(&self) -> bool {
+        let blanc = (255, 255, 255);
+        let avis = self.proche(2, 2, (0, 182, 255)) && self.proche(64, 64, blanc) && self.proche(64, 8, blanc) && self.proche(64, 100, blanc);
+        let formulaire = self.proche(2, 2, (0, 52, 139)) && self.proche(5, 124, (0, 0, 98)) && self.proche(64, 124, (222, 0, 197)) && self.proche(64, 100, (0, 0, 98));
+        avis || formulaire
+    }
+
+    /// While the date screens of a new start show, presses OK (B) every 1.5 s: the firmware fills
+    /// the form from its clock, which follows the phone.
+    fn date_auto(&mut self) {
+        let now = self.m.cpu.cycles;
+        if self.auto_relache != 0 && now >= self.auto_relache {
+            self.m.relacher(0x0B);
+            self.auto_relache = 0;
+        }
+        if now >= self.auto_jusqu || now < self.auto_prochain || self.auto_relache != 0 {
+            return;
+        }
+        if self.ecran_de_date() {
+            let cps = CYCLES_PAR_SECONDE as u64;
+            self.m.appuyer(0x0B);
+            self.auto_relache = now + cps / 8;
+            self.auto_prochain = now + cps * 3 / 2;
+        }
+    }
+
     /// Capybara's note tracking (app.rs, note_jouee): the voice table is searched at the start of
     /// each sound (and again every half second while it gave nothing), and the stale note left
     /// from the previous sound is held as silence for up to 50 ms.
@@ -286,7 +331,7 @@ pub extern "C" fn tama_find_key_stop() {
     KEY_STOP.store(true, Ordering::Relaxed);
 }
 
-// ---- clock: the game's time is the settings' clock origin (days and seconds since 2000-01-01,
+// ---- clock: the game's time is the settings' clock origin (days and seconds since 2025-01-01,
 // at +12 / +16 of a settings page with a CRC-16/ARC over bytes 4.. at +0 and its inverse at +2)
 // plus the console's seconds counter. Setting the origin makes the game show the phone's time. ----
 
@@ -303,14 +348,14 @@ fn crc16_arc(d: &[u8]) -> u16 {
     c
 }
 
-/// Sets the game's clock to `local_secs_since_2000` (the phone's local time, seconds since
-/// 2000-01-01 00:00). Call it after loading the dump and its save, before the console runs on.
+/// Sets the game's clock to `local_secs_since_2025` (the phone's local time, seconds since
+/// 2025-01-01 00:00). Call it after loading the dump and its save, before the console runs on.
 /// Returns how many settings pages were set (0: no valid settings page).
 #[no_mangle]
-pub unsafe extern "C" fn tama_sync_clock(t: *mut Tama, local_secs_since_2000: u64) -> i32 {
+pub unsafe extern "C" fn tama_sync_clock(t: *mut Tama, local_secs_since_2025: u64) -> i32 {
     let t = &mut *t;
     let counter = t.m.periph.snsys.secondes as i64;
-    let origin = local_secs_since_2000 as i64 - counter;
+    let origin = local_secs_since_2025 as i64 - counter;
     if origin < 0 {
         return 0;
     }
@@ -357,4 +402,31 @@ pub unsafe extern "C" fn tama_advance(t: *mut Tama, seconds: u32) {
     if echeance != 0 && avant <= echeance && s.secondes > echeance {
         s.declencher_reveil();
     }
+}
+
+/// For the next `seconds` of console time, the date screens are confirmed by themselves (a new
+/// start asks for the date; the form is already filled in from the clock, set from the phone).
+#[no_mangle]
+pub unsafe extern "C" fn tama_auto_date(t: *mut Tama, seconds: u32) {
+    let t = &mut *t;
+    t.auto_jusqu = t.m.cpu.cycles + seconds as u64 * CYCLES_PAR_SECONDE as u64;
+    t.auto_prochain = 0;
+}
+
+/// (kept for experiments) A save-less start made to look like a wake from deep sleep.
+#[no_mangle]
+pub unsafe extern "C" fn tama_boot_awake(t: *mut Tama) -> i32 {
+    use emulator::peripherals::SnSysRegisters as Sys;
+    let t = &mut *t;
+    let s = &mut t.m.periph.snsys;
+    if s.secondes < 2 {
+        s.secondes = 3600;
+    }
+    let c = s.secondes;
+    s.write_reg(Sys::ALARME, c - 1);
+    let st = s.read_reg(Sys::STATUT_ALARME) | Sys::ALARME_ARMEE;
+    s.write_reg(Sys::STATUT_ALARME, st);
+    s.declencher_reveil();
+    s.reveil_demande = false;
+    1
 }

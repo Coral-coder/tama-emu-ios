@@ -10,6 +10,7 @@ import '../paradise/paradise_machine.dart';
 import '../ui/screen_filters.dart';
 import 'native.dart';
 import 'rom_library.dart';
+import 'watch.dart';
 import 'serial/serial_hub.dart';
 import 'tunnel.dart';
 
@@ -84,6 +85,7 @@ class AppState extends ChangeNotifier {
     tunnel.myName = prefs.getString('myName') ?? 'Tama';
     await library.init();
     unawaited(library.unpackAll());
+    WatchLink.instance.start();
     final last = prefs.getString('lastToy');
     if (last != null) {
       final e = library.entries.where((x) => x.id == last);

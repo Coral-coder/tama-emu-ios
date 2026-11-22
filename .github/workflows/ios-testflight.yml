@@ -215,6 +215,8 @@ jobs:
           tool/sync_paramix.sh
           rustup target add aarch64-apple-ios
           tool/build_native.sh ios
+          # the Apple Watch app runs the same core: built for watchOS too (left out if this fails)
+          if tool/build_native.sh watchos; then touch ios/build_watch_lib; else echo "::warning::The core did not build for watchOS: no Apple Watch app in this build"; fi
           tool/roms.sh decrypt
           flutter pub get
           flutter build ios --release --no-codesign --config-only
@@ -270,6 +272,15 @@ jobs:
           gem list -i xcodeproj > /dev/null || sudo gem install xcodeproj --no-document
           TEAM_ID="$TEAM_ID" BUNDLE_ID="$BUNDLE_ID" ruby ../tool/add_driverkit.rb
           touch build_driverkit_added
+
+      # The Apple Watch app (ios/TamaWatch), with the native core built for watchOS.
+      - name: Add the Apple Watch app
+        if: vars.WATCH != 'off'
+        run: |
+          if [ ! -f build_watch_lib ]; then echo "No watchOS core: no watch app"; exit 0; fi
+          gem list -i xcodeproj > /dev/null || sudo gem install xcodeproj --no-document
+          TEAM_ID="$TEAM_ID" BUNDLE_ID="$BUNDLE_ID" ruby ../tool/add_watch.rb
+          touch build_watch_added
 
       - name: Decide version and build
         env:
@@ -401,7 +412,19 @@ jobs:
             cp build/xcodebuild.log build/xcodebuild-driverkit.log
             git checkout -- Runner.xcodeproj
             rm -f build_driverkit_added
+            if [ -f build_watch_added ]; then TEAM_ID="$TEAM_ID" BUNDLE_ID="$BUNDLE_ID" ruby ../tool/add_watch.rb; fi
             echo "### USB serial driver left out of this build (see the warnings)" >> "$GITHUB_STEP_SUMMARY"
+            if archive; then ok=true; fi
+          fi
+          if [ "$ok" != true ] && [ -f build_watch_added ]; then
+            # The watch app did not build or sign: say why, then archive the iPhone app alone.
+            grep -E ': error: |requires a provisioning profile' build/xcodebuild.log | sort -u | head -20 | while IFS= read -r line; do
+              echo "::warning::Apple Watch app: $(echo "$line" | sed -E "s#^$GITHUB_WORKSPACE/##")"
+            done
+            cp build/xcodebuild.log build/xcodebuild-watch.log
+            git checkout -- Runner.xcodeproj
+            rm -f build_watch_added build_driverkit_added
+            echo "### Apple Watch app left out of this build (see the warnings)" >> "$GITHUB_STEP_SUMMARY"
             if archive; then ok=true; fi
           fi
           if [ "$ok" != true ]; then
@@ -447,6 +470,7 @@ jobs:
             echo "### USB serial driver left out: its App Store profile lacks the DriverKit capabilities" >> "$GITHUB_STEP_SUMMARY"
             rm -f build_driverkit_added
             git checkout -- Runner.xcodeproj
+            if [ -f build_watch_added ]; then TEAM_ID="$TEAM_ID" BUNDLE_ID="$BUNDLE_ID" ruby ../tool/add_watch.rb; fi
             rm -rf "build/$SCHEME.xcarchive" build/upload
             if [ -d "${PROJECT%.xcodeproj}.xcworkspace" ]; then where=(-workspace "${PROJECT%.xcodeproj}.xcworkspace"); else where=(-project "$PROJECT"); fi
             xcodebuild "${where[@]}" -scheme "$SCHEME" -configuration Release \
@@ -456,6 +480,7 @@ jobs:
               -authenticationKeyID "$ASC_KEY_ID" \
               -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
               DEVELOPMENT_TEAM="$TEAM_ID" CODE_SIGN_STYLE=Automatic \
+              APP_BUNDLE_ID="$BUNDLE_ID" \
               ENABLE_DEBUG_DYLIB=NO ENABLE_PREVIEWS=NO \
               MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
               archive > build/xcodebuild-nodriver.log 2>&1 || { tail -60 build/xcodebuild-nodriver.log; exit 1; }

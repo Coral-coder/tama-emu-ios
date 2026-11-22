@@ -7,6 +7,7 @@ import UserNotifications
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   private let tone = TamaTone()
   private var usb: UsbDriverBridge?
+  private var watch: WatchBridge?
 
   override func application(
     _ application: UIApplication,
@@ -19,6 +20,7 @@ import UserNotifications
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
     guard let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "TamaNative") else { return }
     usb = UsbDriverBridge(messenger: registrar.messenger())
+    watch = WatchBridge(messenger: registrar.messenger())
     let channel = FlutterMethodChannel(name: "tama/native", binaryMessenger: registrar.messenger())
     channel.setMethodCallHandler { [weak self] call, result in
       guard let self = self else { return }

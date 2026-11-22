@@ -7,6 +7,7 @@ import '../paradise/paradise_core.dart';
 import '../paradise/paradise_machine.dart';
 import '../services/app_state.dart';
 import '../services/rom_library.dart';
+import '../services/watch.dart';
 import 'screen_filters.dart';
 import 'theme.dart';
 
@@ -105,6 +106,12 @@ class _ParadiseViewState extends State<ParadiseView> {
                   if (context.mounted) await pickScreenLook(context);
                   _shown = -1;
                   _onFrame();
+                case 'watch':
+                  final err = await WatchLink.instance.send(widget.rom);
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                        content: Text(err ?? 'Sent to your Apple Watch. Open Tama there; the save comes back here when you leave the game on the watch.')));
+                  }
                 case 'stop':
                   await app.stopParadise();
               }
@@ -113,6 +120,7 @@ class _ParadiseViewState extends State<ParadiseView> {
             itemBuilder: (_) => [
               PopupMenuItem(value: 'pause', child: Text(m.running ? 'Pause' : 'Run')),
               const PopupMenuItem(value: 'look', child: Text('Upscaler & filter …')),
+              if (WatchLink.instance.available) const PopupMenuItem(value: 'watch', child: Text('Play on Apple Watch')),
               const PopupMenuItem(value: 'stop', child: Text('Back to the games')),
             ],
           ),
@@ -144,18 +152,21 @@ class _ParadiseViewState extends State<ParadiseView> {
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
                 child: LayoutBuilder(builder: (context, cc) {
-                  final dial = (cc.maxHeight - 24).clamp(120.0, (cc.maxWidth * 0.55).clamp(120.0, 280.0));
+                  final dial = (cc.maxHeight - 24).clamp(120.0, (cc.maxWidth * 0.42).clamp(120.0, 240.0));
+                  final key = ((cc.maxWidth - dial - 18) / 2.4).clamp(52.0, 84.0).clamp(0.0, (cc.maxHeight - 8) / 2.05);
                   return Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
                     Expanded(
-                      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                        Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
-                          _key('A', ParadiseHandle.pinA, size: 64),
-                          _key('C', ParadiseHandle.pinC, size: 64),
+                      child: SizedBox(
+                        height: key * 2.05,
+                        child: Stack(children: [
+                          // A, B, C on a gentle arc, as on the toy's face
+                          Align(alignment: const Alignment(-1, -1), child: _key('A', ParadiseHandle.pinA, size: key)),
+                          Align(alignment: const Alignment(0, 1), child: _key('B', ParadiseHandle.pinB, size: key)),
+                          Align(alignment: const Alignment(1, -1), child: _key('C', ParadiseHandle.pinC, size: key)),
                         ]),
-                        const SizedBox(height: 10),
-                        _key('B', ParadiseHandle.pinB, size: 64),
-                      ]),
+                      ),
                     ),
+                    const SizedBox(width: 18),
                     Column(mainAxisAlignment: MainAxisAlignment.center, children: [
                       Dial(
                         size: dial,
@@ -164,7 +175,7 @@ class _ParadiseViewState extends State<ParadiseView> {
                           m.turn(right);
                         },
                         onPress: (down) {
-                          if (down) HapticFeedback.lightImpact();
+                          if (down) HapticFeedback.mediumImpact();
                           down ? m.press(ParadiseHandle.pinWheel) : m.release(ParadiseHandle.pinWheel);
                         },
                       ),
@@ -316,27 +327,40 @@ class _HoldKeyState extends State<_HoldKey> {
 
   @override
   Widget build(BuildContext context) {
+    final sz = widget.size;
     return Listener(
       onPointerDown: (_) => _set(true),
       onPointerUp: (_) => _set(false),
       onPointerCancel: (_) => _set(false),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 60),
-        width: widget.size,
-        height: widget.size,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: _down ? const Color(0xFFCC8C00) : kAmber,
-          boxShadow: _down ? const [] : const [BoxShadow(color: Colors.black87, blurRadius: 6, offset: Offset(0, 4))],
+      child: AnimatedScale(
+        scale: _down ? 0.92 : 1,
+        duration: const Duration(milliseconds: 70),
+        child: Container(
+          width: sz,
+          height: sz,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            // a domed key: lit from above, sunk when pressed
+            gradient: RadialGradient(
+              center: const Alignment(-0.3, -0.45),
+              radius: 0.95,
+              colors: _down ? const [Color(0xFFFFC85A), Color(0xFFB87A00)] : const [Color(0xFF3B342D), Color(0xFF16130F)],
+            ),
+            border: Border.all(color: kAmber.withValues(alpha: _down ? 1 : 0.7), width: 2),
+            boxShadow: _down
+                ? [BoxShadow(color: kAmber.withValues(alpha: 0.45), blurRadius: 16)]
+                : const [BoxShadow(color: Colors.black, blurRadius: 10, offset: Offset(0, 5))],
+          ),
+          child: Text(
+            widget.label,
+            style: TextStyle(fontSize: sz * 0.36, fontWeight: FontWeight.w800, color: _down ? Colors.black : kAmber, letterSpacing: 0.5),
+          ),
         ),
-        child: Text(widget.label, style: TextStyle(fontSize: widget.size > 60 ? 22 : 13, fontWeight: FontWeight.w700, color: Colors.black)),
       ),
     );
   }
 }
-
-
 
 /// Lines over the picture: the LCD's dot grid, or a CRT's scanlines.
 class OverlayPainter extends CustomPainter {

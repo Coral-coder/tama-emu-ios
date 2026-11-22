@@ -63,6 +63,7 @@ class ParadiseCore {
         cyclesPerSecond = l.lookupFunction<_U64N, _U64D>('tama_cycles_per_second')(),
         _syncClock = l.lookupFunction<_ClockN, _ClockD>('tama_sync_clock'),
         _advance = l.lookupFunction<_AdvN, _AdvD>('tama_advance'),
+        _autoDate = l.lookupFunction<_AdvN, _AdvD>('tama_auto_date'),
         _sounds = l.lookupFunction<_SoundsN, _IntD>('tama_sounds'),
         _findKey = l.lookupFunction<_KeyN, _KeyD>('tama_find_key'),
         _keyProgress = l.lookupFunction<_U64N, _U64D>('tama_find_key_progress'),
@@ -97,6 +98,7 @@ class ParadiseCore {
   final int cyclesPerSecond;
   final _ClockD _syncClock;
   final _AdvD _advance;
+  final _AdvD _autoDate;
   final _IntD _sounds;
   final _KeyD _findKey;
   final _U64D _keyProgress;
@@ -150,6 +152,10 @@ class ParadiseHandle {
   double note() => core._note(_t);
   /// Sounds the console started so far.
   int get sounds => core._sounds(_t);
+  /// For the next [seconds], the date screens of a new start confirm themselves (the firmware
+  /// fills the form in from its clock, which follows the phone).
+  void autoDate([int seconds = 180]) => core._autoDate(_t, seconds);
+
   /// The console's clock jumps ahead (time the phone held the app suspended).
   void advance(int seconds) {
     if (seconds > 0) core._advance(_t, seconds);
@@ -158,7 +164,8 @@ class ParadiseHandle {
   /// e.g. before the first setup).
   int syncClock([DateTime? at]) {
     final t = at ?? DateTime.now();
-    final local = t.millisecondsSinceEpoch ~/ 1000 + t.timeZoneOffset.inSeconds - 946684800; // 2000-01-01
+    // the firmware counts its days from 2025-01-01
+    final local = t.millisecondsSinceEpoch ~/ 1000 + t.timeZoneOffset.inSeconds - 1735689600;
     return core._syncClock(_t, local);
   }
 
