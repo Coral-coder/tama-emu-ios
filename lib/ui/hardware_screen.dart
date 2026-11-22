@@ -34,6 +34,7 @@ class _HardwareScreenState extends State<HardwareScreen> {
   bool _scanning = false;
   List<ScanResult> _ble = [];
   List<UsbAdapter> _usb = [];
+  String? _usbWhy;
   StreamSubscription<List<ScanResult>>? _scanSub;
   String? _err;
 
@@ -57,7 +58,13 @@ class _HardwareScreenState extends State<HardwareScreen> {
   Future<void> _refreshUsb() async {
     try {
       final l = await UsbTransport.list();
-      if (mounted) setState(() => _usb = l);
+      final why = l.isEmpty && Platform.isIOS ? await IosUsbTransport.whyNone() : null;
+      if (mounted) {
+        setState(() {
+          _usb = l;
+          _usbWhy = why;
+        });
+      }
     } catch (e) {
       if (mounted) setState(() => _err = 'USB: $e');
     }
@@ -189,7 +196,7 @@ class _HardwareScreenState extends State<HardwareScreen> {
             ListTile(
               leading: const Icon(Icons.usb),
               title: Text(_usb.isEmpty ? 'No adapter found' : '${_usb.length} adapter(s)'),
-              subtitle: Text('CH340, CP210x, FTDI, PL2303, CDC-ACM · opens at ${hub.baud} baud'),
+              subtitle: Text(_usbWhy ?? 'CH340, CP210x, FTDI, PL2303, CDC-ACM · opens at ${hub.baud} baud'),
               trailing: IconButton(icon: const Icon(Icons.refresh), onPressed: _refreshUsb),
             ),
             for (final d in _usb)
@@ -298,9 +305,10 @@ class _HelpCard extends StatelessWidget {
           'this connection).\n\n'
           'P-Com and other toy comm boards: pick their baud rate (USB) or set it on the bridge, then use the '
           'terminal, or relay them to another phone on the Link page.\n\n'
-          'iPhone: iOS gives apps no access to USB serial adapters, so use a BLE serial bridge (an ESP32 '
-          'with a Nordic UART sketch, an HM-10 module) or a Wi-Fi serial bridge wired to the dongle\'s '
-          'TX/RX/GND.',
+          'iPad: a USB serial adapter works through Tama\'s own driver (DriverKit, iPads with an M-series '
+          'chip), once Apple allows the driver in TestFlight builds. iPhone, or until then: a BLE serial '
+          'bridge (an ESP32 with a Nordic UART sketch, an HM-10 module) or a Wi-Fi serial bridge wired to '
+          'the dongle\'s TX/RX/GND.',
         ),
       ),
     );

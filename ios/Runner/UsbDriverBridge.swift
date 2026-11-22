@@ -1,8 +1,5 @@
 import Flutter
 import Foundation
-#if canImport(IOKit)
-import IOKit
-#endif
 
 /// The app side of the USB serial driver (ios/TamaSerialDriver, DriverKit): lists the adapters the
 /// driver has, opens one and passes control transfers and bulk data. Method channel "tama/usbdk",
@@ -11,9 +8,7 @@ import IOKit
 final class UsbDriverBridge: NSObject, FlutterStreamHandler {
   private var sink: FlutterEventSink?
   private let ioQueue = DispatchQueue(label: "tama.usbdk.io")
-  #if canImport(IOKit)
-  private var conn: io_connect_t = 0
-  #endif
+  private var conn: UInt32 = 0
   private var reading = false
 
   init(messenger: FlutterBinaryMessenger) {
@@ -34,11 +29,15 @@ final class UsbDriverBridge: NSObject, FlutterStreamHandler {
   }
 
   private func handle(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) {
-    #if canImport(IOKit)
     let a = call.arguments as? [String: Any] ?? [:]
     switch call.method {
     case "supported":
-      result(true)
+      result(tk_available() == 1)
+    case "status":
+      // whether this build carries the driver: App Store builds leave it out until Apple grants
+      // DriverKit for distribution
+      let dexts = (try? FileManager.default.contentsOfDirectory(atPath: Bundle.main.bundlePath + "/SystemExtensions")) ?? []
+      result(["iokit": tk_available() == 1, "driver": dexts.contains { $0.hasSuffix(".dext") }])
     case "list":
       result(list())
     case "open":
@@ -70,49 +69,34 @@ final class UsbDriverBridge: NSObject, FlutterStreamHandler {
     default:
       result(FlutterMethodNotImplemented)
     }
-    #else
-    if call.method == "supported" { result(false) } else { result(FlutterError(code: "usb", message: "IOKit is not available", details: nil)) }
-    #endif
-  }
-
-  #if canImport(IOKit)
-  private func prop(_ s: io_service_t, _ key: String) -> Any? {
-    IORegistryEntrySearchCFProperty(s, kIOServicePlane, key as CFString, kCFAllocatorDefault,
-                                    IOOptionBits(kIORegistryIterateRecursively | kIORegistryIterateParents))
   }
 
   private func list() -> [[String: Any]] {
-    var it: io_iterator_t = 0
-    guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceNameMatching("TamaSerialDriver"), &it) == KERN_SUCCESS else { return [] }
-    defer { IOObjectRelease(it) }
+    let max = 16
+    var ids = [UInt64](repeating: 0, count: max), vids = [Int32](repeating: 0, count: max), pids = [Int32](repeating: 0, count: max)
+    var names = [CChar](repeating: 0, count: max * 64)
+    let n = Int(tk_list(&ids, &vids, &pids, &names, Int32(max)))
     var out: [[String: Any]] = []
-    while case let s = IOIteratorNext(it), s != 0 {
-      var id: UInt64 = 0
-      IORegistryEntryGetRegistryEntryID(s, &id)
-      let vid = (prop(s, "idVendor") as? NSNumber)?.intValue ?? 0
-      let pid = (prop(s, "idProduct") as? NSNumber)?.intValue ?? 0
-      let name = (prop(s, "USB Product Name") as? String) ?? (prop(s, "kUSBProductString") as? String) ?? "USB serial"
-      out.append(["id": NSNumber(value: id), "name": name, "vid": vid, "pid": pid])
-      IOObjectRelease(s)
+    for i in 0..<n {
+      let name = names[(i * 64)..<(i * 64 + 64)].withUnsafeBufferPointer { String(cString: $0.baseAddress!) }
+      out.append(["id": NSNumber(value: ids[i]), "name": name, "vid": Int(vids[i]), "pid": Int(pids[i])])
     }
     return out
   }
 
   private func open(_ id: UInt64) -> Any {
     close()
-    let s = IOServiceGetMatchingService(kIOMainPortDefault, IORegistryEntryIDMatching(id))
-    guard s != 0 else { return FlutterError(code: "usb", message: "adapter not found", details: nil) }
-    defer { IOObjectRelease(s) }
-    var c: io_connect_t = 0
-    let kr = IOServiceOpen(s, mach_task_self_, 0, &c)
-    guard kr == KERN_SUCCESS else {
+    var c: UInt32 = 0
+    let kr = tk_open(id, &c)
+    if kr == -2 { return FlutterError(code: "usb", message: "adapter not found", details: nil) }
+    guard kr == 0 else {
       return FlutterError(code: "usb", message: "the driver refused (0x\(String(kr, radix: 16))). Allow Tama's driver in Settings → Tama → Drivers.", details: nil)
     }
     var outs = [UInt64](repeating: 0, count: 2)
     var n: UInt32 = 2
-    let r = IOConnectCallScalarMethod(c, 0, nil, 0, &outs, &n)
-    guard r == KERN_SUCCESS else {
-      IOServiceClose(c)
+    let r = tk_call(c, 0, nil, 0, nil, 0, &outs, &n, nil, nil)
+    guard r == 0 else {
+      tk_close(c)
       return FlutterError(code: "usb", message: "could not open the adapter (0x\(String(r, radix: 16)))", details: nil)
     }
     conn = c
@@ -125,10 +109,10 @@ final class UsbDriverBridge: NSObject, FlutterStreamHandler {
     var ins: [UInt64] = [UInt64(type), UInt64(req), UInt64(value), UInt64(index), UInt64(length)]
     var outBuf = [UInt8](repeating: 0, count: max(length, 1))
     var outLen = (type & 0x80) != 0 ? length : 0
-    let kr: kern_return_t = (data ?? Data()).withUnsafeBytes { p in
-      IOConnectCallMethod(conn, 2, &ins, 5, p.baseAddress, (type & 0x80) != 0 ? 0 : (data?.count ?? 0), nil, nil, &outBuf, &outLen)
+    let kr: Int32 = (data ?? Data()).withUnsafeBytes { p in
+      tk_call(conn, 2, &ins, 5, p.baseAddress, (type & 0x80) != 0 ? 0 : (data?.count ?? 0), nil, nil, &outBuf, &outLen)
     }
-    guard kr == KERN_SUCCESS else { return FlutterError(code: "usb", message: "control 0x\(String(req, radix: 16)) failed (0x\(String(kr, radix: 16)))", details: nil) }
+    guard kr == 0 else { return FlutterError(code: "usb", message: "control 0x\(String(req, radix: 16)) failed (0x\(String(kr, radix: 16)))", details: nil) }
     return (type & 0x80) != 0 ? FlutterStandardTypedData(bytes: Data(outBuf.prefix(outLen))) : nil
   }
 
@@ -139,10 +123,10 @@ final class UsbDriverBridge: NSObject, FlutterStreamHandler {
       let n = min(4096, data.count - off)
       var outs: [UInt64] = [0]
       var on: UInt32 = 1
-      let kr: kern_return_t = data.subdata(in: off..<off + n).withUnsafeBytes { p in
-        IOConnectCallMethod(conn, 3, nil, 0, p.baseAddress, n, &outs, &on, nil, nil)
+      let kr: Int32 = data.subdata(in: off..<off + n).withUnsafeBytes { p in
+        tk_call(conn, 3, nil, 0, p.baseAddress, n, &outs, &on, nil, nil)
       }
-      if kr != KERN_SUCCESS { return "write failed (0x\(String(kr, radix: 16)))" }
+      if kr != 0 { return "write failed (0x\(String(kr, radix: 16)))" }
       off += n
     }
     return nil
@@ -156,8 +140,8 @@ final class UsbDriverBridge: NSObject, FlutterStreamHandler {
       while let self = self, self.reading, self.conn == c {
         var ins: [UInt64] = [4096, 20]
         var len = 4096
-        let kr = IOConnectCallMethod(c, 4, &ins, 2, nil, 0, nil, nil, &buf, &len)
-        if kr != KERN_SUCCESS {
+        let kr = tk_call(c, 4, &ins, 2, nil, 0, nil, nil, &buf, &len)
+        if kr != 0 {
           DispatchQueue.main.async { self.sink?(FlutterError(code: "usb", message: "read stopped (0x\(String(kr, radix: 16)))", details: nil)) }
           break
         }
@@ -172,10 +156,9 @@ final class UsbDriverBridge: NSObject, FlutterStreamHandler {
   private func close() {
     reading = false
     if conn != 0 {
-      _ = IOConnectCallScalarMethod(conn, 1, nil, 0, nil, nil)
-      IOServiceClose(conn)
+      _ = tk_call(conn, 1, nil, 0, nil, 0, nil, nil, nil, nil)
+      tk_close(conn)
       conn = 0
     }
   }
-  #endif
 }

@@ -57,6 +57,24 @@ class AndroidUsbTransport extends UsbTransport {
   final _in = StreamController<Uint8List>.broadcast();
   StreamSubscription<dynamic>? _sub;
 
+  /// Why there is no adapter on this iPad/iPhone, or null when USB should work.
+  static Future<String?> whyNone() async {
+    try {
+      final st = Map<String, dynamic>.from(await _ch.invokeMethod('status') as Map);
+      if (st['driver'] != true) {
+        return 'This build has no USB driver. Apple has granted Tama\'s DriverKit capabilities for development '
+            'only, and TestFlight / App Store builds may carry the driver only once Apple approves it for '
+            'distribution (developer.apple.com/contact/request/system-extension). Until then, use a Bluetooth '
+            'or Wi-Fi serial bridge.';
+      }
+      if (st['iokit'] != true) return 'This device cannot talk to USB drivers (an iPad with an M-series chip is needed).';
+      return 'Plug the adapter in, then allow Tama\'s driver: Settings → General → Login Items & Extensions → '
+          'Driver Extensions (an iPad with an M-series chip is needed).';
+    } catch (e) {
+      return '$e';
+    }
+  }
+
   static Future<List<UsbAdapter>> list() async {
     final l = await _ch.invokeListMethod<Map<dynamic, dynamic>>('list') ?? [];
     return [for (final m in l) UsbAdapter(m['id'] as int, (m['name'] ?? 'USB serial') as String, m['vid'] as int, m['pid'] as int, (m['driver'] ?? '') as String)];
@@ -107,6 +125,24 @@ class IosUsbTransport extends UsbTransport {
   final _in = StreamController<Uint8List>.broadcast();
   StreamSubscription<dynamic>? _sub;
   bool _dtr = true, _rts = true;
+
+  /// Why there is no adapter on this iPad/iPhone, or null when USB should work.
+  static Future<String?> whyNone() async {
+    try {
+      final st = Map<String, dynamic>.from(await _ch.invokeMethod('status') as Map);
+      if (st['driver'] != true) {
+        return 'This build has no USB driver. Apple has granted Tama\'s DriverKit capabilities for development '
+            'only, and TestFlight / App Store builds may carry the driver only once Apple approves it for '
+            'distribution (developer.apple.com/contact/request/system-extension). Until then, use a Bluetooth '
+            'or Wi-Fi serial bridge.';
+      }
+      if (st['iokit'] != true) return 'This device cannot talk to USB drivers (an iPad with an M-series chip is needed).';
+      return 'Plug the adapter in, then allow Tama\'s driver: Settings → General → Login Items & Extensions → '
+          'Driver Extensions (an iPad with an M-series chip is needed).';
+    } catch (e) {
+      return '$e';
+    }
+  }
 
   static Future<List<UsbAdapter>> list() async {
     final l = await _ch.invokeListMethod<Map<dynamic, dynamic>>('list') ?? [];

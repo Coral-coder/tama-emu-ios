@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:async';
 
 import 'package:flutter/services.dart';
@@ -63,11 +64,18 @@ class _DeviceScreenState extends State<DeviceScreen> {
     if (mounted) setState(() {});
   }
 
+  bool _toldWhy = false;
+
   Future<void> _refreshUsb() async {
     if (!UsbTransport.supported) return;
     try {
       final l = await UsbTransport.list();
       if (mounted) setState(() => _usb = l);
+      if (l.isEmpty && Platform.isIOS && !_toldWhy) {
+        _toldWhy = true;
+        final why = await IosUsbTransport.whyNone();
+        if (why != null && mounted) _say('USB: $why');
+      }
       // one adapter plugged in and nothing connected: connect it right away
       if (l.length == 1 && !hub.connected && !_busy) await _openUsb(l.first);
     } catch (_) {}

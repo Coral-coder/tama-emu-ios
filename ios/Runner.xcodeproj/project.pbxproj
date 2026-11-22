@@ -20,6 +20,7 @@
 		97C146FC1CF9000F007C117D /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FA1CF9000F007C117D /* Main.storyboard */; };
 		97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FD1CF9000F007C117D /* Assets.xcassets */; };
 		97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */; };
+		BCF0F25CC5DD4E85B9255F3B /* IOKitShim.c in Sources */ = {isa = PBXBuildFile; fileRef = C40B6153D9981A5C29E26A0D /* IOKitShim.c */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -70,6 +71,8 @@
 		97C146FD1CF9000F007C117D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		97C147001CF9000F007C117D /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		97C147021CF9000F007C117D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		C40B6153D9981A5C29E26A0D /* IOKitShim.c */ = {isa = PBXFileReference; includeInIndex = 1; path = IOKitShim.c; sourceTree = "<group>"; };
+		CF642DBB6482AF8B225F66FB /* IOKitShim.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = IOKitShim.h; sourceTree = "<group>"; };
 		D22E2678B4BD342C37E10B34 /* Pods-Runner.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.release.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"; sourceTree = "<group>"; };
 		E535E62ADA79AAE9345204B0 /* Pods_RunnerTests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_RunnerTests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		FA8B93669A7B8E44E909B8C5 /* Pods_Runner.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Runner.framework; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -174,6 +177,8 @@
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
 				1EE2CC1CBEE8F706CF8F1DE3 /* UsbDriverBridge.swift */,
 				49CC3FE29679CD83A247E292 /* WatchBridge.swift */,
+				C40B6153D9981A5C29E26A0D /* IOKitShim.c */,
+				CF642DBB6482AF8B225F66FB /* IOKitShim.h */,
 			);
 			path = Runner;
 			sourceTree = "<group>";
@@ -401,6 +406,7 @@
 				7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */,
 				7A760E2E2CF348A75F64FF60 /* UsbDriverBridge.swift in Sources */,
 				927641EFEBE186ED15D54654 /* WatchBridge.swift in Sources */,
+				BCF0F25CC5DD4E85B9255F3B /* IOKitShim.c in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
