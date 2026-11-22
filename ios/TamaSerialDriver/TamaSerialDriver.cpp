@@ -4,6 +4,7 @@
 #include <DriverKit/IOLib.h>
 #include <DriverKit/IOBufferMemoryDescriptor.h>
 #include <DriverKit/OSCollections.h>
+#include <DriverKit/IOUserClient.h>
 #include <USBDriverKit/USBDriverKit.h>
 #include <USBDriverKit/IOUSBHostDevice.h>
 #include <USBDriverKit/IOUSBHostInterface.h>
@@ -94,7 +95,8 @@ kern_return_t TamaSerialDriver::OpenPort(uint32_t * vidPid, uint32_t * interface
     kern_return_t ret = dev->Open(this, 0, NULL);
     if (ret != kIOReturnSuccess) { LOG("device open 0x%x", ret); return ret; }
 
-    const IOUSBConfigurationDescriptor * cfg = dev->CopyConfigurationDescriptor(0);
+    const uint8_t firstConfig = 0;
+    const IOUSBConfigurationDescriptor * cfg = dev->CopyConfigurationDescriptor(firstConfig);
     if (!cfg) { dev->Close(this, 0); return kIOReturnNotFound; }
     ret = dev->SetConfiguration(cfg->bConfigurationValue, true);
     IOUSBHostFreeDescriptor(cfg);
