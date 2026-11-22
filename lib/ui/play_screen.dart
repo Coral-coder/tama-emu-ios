@@ -9,6 +9,7 @@ import '../services/native.dart';
 import 'games_screen.dart';
 import 'lcd_view.dart';
 import 'paradise_view.dart';
+import '../paradise/unlock.dart';
 import 'theme.dart';
 
 class PlayScreen extends StatelessWidget {
@@ -18,8 +19,10 @@ class PlayScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final app = AppState.instance;
     return ListenableBuilder(
-      listenable: app,
+      listenable: Listenable.merge([app, ParadiseUnlock.instance]),
       builder: (context, _) {
+        final u = ParadiseUnlock.instance;
+        if (u.rom != null) return const _Unlocking();
         final p = app.paradise;
         if (p != null) return ParadiseView(machine: p, rom: app.paradiseRom!);
         final m = app.machine;
@@ -286,6 +289,54 @@ class _RoundKeyState extends State<_RoundKey> {
           boxShadow: _down ? const [] : const [BoxShadow(color: Colors.black87, blurRadius: 6, offset: Offset(0, 4))],
         ),
         child: Text(widget.label, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: Colors.black)),
+      ),
+    );
+  }
+}
+
+
+/// First start of a Paradise dump: the phone finds its key, then the game starts by itself.
+class _Unlocking extends StatelessWidget {
+  const _Unlocking();
+
+  static String _d(Duration d) {
+    if (d.inSeconds < 60) return '${d.inSeconds} s';
+    return '${d.inMinutes} min ${(d.inSeconds % 60).toString().padLeft(2, '0')} s';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final u = ParadiseUnlock.instance;
+    final name = u.rom!.name.replaceFirst('Tamagotchi Paradise · ', '');
+    final left = u.remaining;
+    return Scaffold(
+      appBar: AppBar(title: Text(name)),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(28),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            if (u.error == null) ...[
+              const Icon(Icons.egg_outlined, size: 64, color: kAmber),
+              const SizedBox(height: 16),
+              Text('Getting $name ready for its first start', textAlign: TextAlign.center, style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 8),
+              const Text('The firmware in the dump is locked to its device. The phone works out the lock now (once per ROM, all cores, keep the app open). Then the game starts by itself.',
+                  textAlign: TextAlign.center, style: TextStyle(color: Colors.white60)),
+              const SizedBox(height: 20),
+              LinearProgressIndicator(value: u.progress),
+              const SizedBox(height: 8),
+              Text('${(u.progress * 100).toStringAsFixed(1)} %  ·  ${_d(u.elapsed)}${left != null ? '  ·  at most ${_d(left)} left' : ''}'),
+              const SizedBox(height: 20),
+              TextButton(onPressed: u.cancel, child: const Text('Cancel')),
+            ] else ...[
+              const Icon(Icons.error_outline, size: 56, color: Colors.redAccent),
+              const SizedBox(height: 12),
+              SelectableText(u.error!, textAlign: TextAlign.center),
+              const SizedBox(height: 16),
+              FilledButton(onPressed: u.cancel, child: const Text('Back to the games')),
+            ],
+          ]),
+        ),
       ),
     );
   }

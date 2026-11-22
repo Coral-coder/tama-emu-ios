@@ -6,7 +6,7 @@ import 'package:material_ui/material_ui.dart';
 import '../emu/rom_info.dart';
 import '../services/app_state.dart';
 import '../services/rom_library.dart';
-import 'paradise_view.dart';
+import '../paradise/unlock.dart';
 import 'theme.dart';
 
 /// All games: the Paradise dumps (with their edition's field as cover) and the first toys.
@@ -112,13 +112,8 @@ Future<void> startGame(BuildContext context, RomEntry e) async {
     app.page.value = 0;
     return;
   }
-  final r = await app.playParadise(e);
-  if (r == 'key') {
-    if (context.mounted) await askParadiseKey(context, e);
-  } else if (r != null && context.mounted) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(r)));
-  }
   app.page.value = 0;
+  await ParadiseUnlock.instance.play(e);
 }
 
 class _GameCard extends StatelessWidget {

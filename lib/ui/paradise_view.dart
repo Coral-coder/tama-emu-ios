@@ -1,6 +1,3 @@
-import 'dart:async';
-import 'dart:io';
-import 'dart:isolate';
 import 'dart:ui' as ui;
 
 import 'package:flutter/services.dart';
@@ -103,14 +100,11 @@ class _ParadiseViewState extends State<ParadiseView> {
                   m.running ? m.pause() : m.start();
                 case 'stop':
                   await app.stopParadise();
-                case 'key':
-                  await askParadiseKey(context, widget.rom);
               }
               if (mounted) setState(() {});
             },
             itemBuilder: (_) => [
               PopupMenuItem(value: 'pause', child: Text(m.running ? 'Pause' : 'Run')),
-              const PopupMenuItem(value: 'key', child: Text('Device key …')),
               const PopupMenuItem(value: 'stop', child: Text('Back to the games')),
             ],
           ),
@@ -214,101 +208,3 @@ class _HoldKeyState extends State<_HoldKey> {
   }
 }
 
-/// Asks for the device key of a Paradise dump: typed in, or searched on the phone. Starts the
-/// game when it fits. Returns true when the game runs.
-Future<bool> askParadiseKey(BuildContext context, RomEntry rom) async {
-  final app = AppState.instance;
-  final ctrl = TextEditingController(text: app.paradiseKey(rom)?.toRadixString(16).padLeft(8, '0').toUpperCase() ?? '');
-  String? err;
-  var searching = false;
-  double progress = 0;
-  Timer? poll;
-  final ok = await showDialog<bool>(
-    context: context,
-    barrierDismissible: false,
-    builder: (c) => StatefulBuilder(builder: (c, setD) {
-      Future<void> tryKey(int key) async {
-        final r = await app.playParadise(rom, key: key);
-        if (r == null) {
-          if (c.mounted) Navigator.pop(c, true);
-        } else {
-          setD(() => err = r == 'key' ? 'That key does not open this dump.' : r);
-        }
-      }
-
-      return AlertDialog(
-        title: const Text('Device key'),
-        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text(
-            'Every Paradise encrypts its firmware with its own 32-bit device key. Enter yours '
-            '(8 hex digits), or let the phone search it from your dump. It is stored with this ROM.',
-          ),
-          const SizedBox(height: 10),
-          TextField(
-            controller: ctrl,
-            enabled: !searching,
-            textCapitalization: TextCapitalization.characters,
-            decoration: const InputDecoration(labelText: 'Key, e.g. 1A2B3C4D'),
-          ),
-          if (searching) ...[
-            const SizedBox(height: 12),
-            LinearProgressIndicator(value: progress),
-            Text('Searching … ${(progress * 100).toStringAsFixed(1)} %', style: const TextStyle(fontSize: 12)),
-          ],
-          if (err != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(err!, style: const TextStyle(color: Colors.redAccent))),
-        ]),
-        actions: [
-          TextButton(
-            onPressed: () {
-              if (searching) ParadiseCore.instance?.keyStop();
-              poll?.cancel();
-              Navigator.pop(c, false);
-            },
-            child: const Text('Cancel'),
-          ),
-          if (!searching)
-            TextButton(
-              onPressed: () async {
-                final core = ParadiseCore.instance;
-                if (core == null) {
-                  setD(() => err = 'The Paradise core is not in this build.');
-                  return;
-                }
-                setD(() {
-                  searching = true;
-                  err = null;
-                });
-                poll = Timer.periodic(const Duration(milliseconds: 400), (_) => setD(() => progress = core.keyProgress()));
-                final path = (await app.library.romFile(rom)).path;
-                final threads = Platform.numberOfProcessors;
-                final key = await Isolate.run(() => ParadiseCore.instance!.findKey(path, threads));
-                poll?.cancel();
-                setD(() => searching = false);
-                if (key == null) {
-                  setD(() => err = 'No key found.');
-                } else {
-                  ctrl.text = key.toRadixString(16).padLeft(8, '0').toUpperCase();
-                  await tryKey(key);
-                }
-              },
-              child: const Text('Search on this phone'),
-            ),
-          if (!searching)
-            FilledButton(
-              onPressed: () {
-                final k = int.tryParse(ctrl.text.trim().replaceFirst(RegExp('^0x', caseSensitive: false), ''), radix: 16);
-                if (k == null) {
-                  setD(() => err = 'Eight hex digits, please.');
-                  return;
-                }
-                tryKey(k);
-              },
-              child: const Text('Start'),
-            ),
-        ],
-      );
-    }),
-  );
-  poll?.cancel();
-  return ok == true;
-}
