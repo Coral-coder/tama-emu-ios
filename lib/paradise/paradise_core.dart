@@ -64,6 +64,7 @@ class ParadiseCore {
         _syncClock = l.lookupFunction<_ClockN, _ClockD>('tama_sync_clock'),
         _advance = l.lookupFunction<_AdvN, _AdvD>('tama_advance'),
         _autoDate = l.lookupFunction<_AdvN, _AdvD>('tama_auto_date'),
+        _wake = l.lookupFunction<_IntN, _IntD>('tama_wake'),
         _sounds = l.lookupFunction<_SoundsN, _IntD>('tama_sounds'),
         _findKey = l.lookupFunction<_KeyN, _KeyD>('tama_find_key'),
         _keyProgress = l.lookupFunction<_U64N, _U64D>('tama_find_key_progress'),
@@ -99,6 +100,7 @@ class ParadiseCore {
   final _ClockD _syncClock;
   final _AdvD _advance;
   final _AdvD _autoDate;
+  final _IntD _wake;
   final _IntD _sounds;
   final _KeyD _findKey;
   final _U64D _keyProgress;
@@ -152,6 +154,9 @@ class ParadiseHandle {
   double note() => core._note(_t);
   /// Sounds the console started so far.
   int get sounds => core._sounds(_t);
+  /// Wakes the console from its power-save sleep (its screen comes back on).
+  bool wake() => core._wake(_t) == 1;
+
   /// For the next [seconds], the date screens of a new start confirm themselves (the firmware
   /// fills the form in from its clock, which follows the phone).
   void autoDate([int seconds = 180]) => core._autoDate(_t, seconds);

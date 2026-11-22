@@ -35,6 +35,9 @@ pub struct Tama {
     auto_jusqu: u64,
     auto_prochain: u64,
     auto_relache: u64,
+    veille_depuis: Option<u64>, // since when the core sits parked, powered off
+    redemarrages: u32,
+    boucle: (u32, u64, u32, u32), // a spin loop (pc, since, hits, frames): waiting for the watchdog
 }
 
 unsafe fn path_of(p: *const c_char) -> Option<PathBuf> {
@@ -58,6 +61,9 @@ pub extern "C" fn tama_new() -> *mut Tama {
         auto_jusqu: 0,
         auto_prochain: 0,
         auto_relache: 0,
+        veille_depuis: None,
+        boucle: (0, 0, 0, 0),
+        redemarrages: 0,
     }))
 }
 
@@ -126,21 +132,110 @@ pub unsafe extern "C" fn tama_run(t: *mut Tama, cycles: u64, budget_ms: u32) -> 
     if !t.m.is_running {
         return 0;
     }
-    let start = t.m.cpu.cycles;
     let t0 = Instant::now();
     let limit = Duration::from_millis(budget_ms.max(1) as u64);
     t.note_vue = 0.0;
-    while t.m.cpu.cycles - start < cycles && t0.elapsed() < limit {
+    let mut done: u64 = 0;
+    while done < cycles && t0.elapsed() < limit {
+        let avant = t.m.cpu.cycles;
         if !matches!(t.m.run_frame(), StepResult::Ok(_)) {
             break;
         }
+        let apres = t.m.cpu.cycles;
+        if apres < avant {
+            // a wake from deep sleep resets the core, and its cycle counter with it
+            done += apres;
+            t.recaler();
+        } else {
+            done += apres - avant;
+        }
         t.suivre_le_son();
         t.date_auto();
+        t.suivre_la_veille();
     }
-    t.m.cpu.cycles - start
+    done
 }
 
 impl Tama {
+    /// Deep sleep, on every edition: Capybara knows Water's sleep loop (0x23D0); the others park
+    /// elsewhere in PRAM (Neon: 0x224C) after asking the clock block to power the core off (bit 0
+    /// of 0x45000300). Either way only a key (or the alarm) wakes the console.
+    fn garee(&self) -> bool {
+        self.m.periph.snsys.read_reg(0x300) & 1 != 0 && self.m.cpu.regs.pc < 0x4000
+    }
+
+    /// Parked for half a second at least (the boot also runs a moment in PRAM with the bit set).
+    fn en_veille(&self) -> bool {
+        self.m.en_veille_profonde()
+            || (self.garee() && self.veille_depuis.is_some_and(|d| self.m.cpu.cycles.saturating_sub(d) > CYCLES_PAR_SECONDE as u64 / 2))
+    }
+
+    fn suivre_la_veille(&mut self) {
+        if self.garee() {
+            if self.veille_depuis.is_none() {
+                self.veille_depuis = Some(self.m.cpu.cycles);
+            }
+        } else {
+            self.veille_depuis = None;
+        }
+        // The firmware ends some jobs ("reset all") by spinning until the chip's watchdog restarts
+        // it; Capybara has no watchdog. Two seconds in the same few bytes of code is that spin.
+        let pc = self.m.cpu.regs.pc;
+        let now = self.m.cpu.cycles;
+        let b = &mut self.boucle;
+        b.3 += 1;
+        if pc >= 0x1000_0000 && pc.abs_diff(b.0) <= 8 {
+            b.2 += 1;
+        }
+        if now.saturating_sub(b.1) > 2 * CYCLES_PAR_SECONDE as u64 {
+            // nearly every look in two seconds found the core in the same few bytes: a spin
+            let spin = b.3 > 20 && b.2 * 10 >= b.3 * 9;
+            *b = (pc, now, 0, 0);
+            if spin {
+                self.redemarrages += 1;
+                self.m.reset();
+                self.m.is_running = true;
+                self.recaler();
+                return;
+            }
+        }
+        // tells the core it sleeps, so its clock alarm wakes it on every edition (Capybara only
+        // recognises Water's sleep loop)
+        if !self.m.periph.pmu.deep_sleep_active && self.en_veille() {
+            self.m.periph.pmu.deep_sleep_active = true;
+        }
+    }
+
+    /// A key wakes a sleeping console (the core restarts, as on the toy).
+    fn reveiller(&mut self) -> bool {
+        if !self.en_veille() {
+            return false;
+        }
+        self.m.periph.pmu.deep_sleep_active = true;
+        let r = self.m.reveiller_par_broche();
+        if r {
+            self.recaler();
+        }
+        r
+    }
+
+    /// The core was reset (its cycle counter restarted): the deadlines kept in cycles follow.
+    fn recaler(&mut self) {
+        let now = self.m.cpu.cycles;
+        self.veille_depuis = None;
+        self.boucle = (0, now, 0, 0);
+        self.m.periph.pmu.deep_sleep_active = false;
+        self.derniere_recherche = 0;
+        self.perimee_jusqu = 0;
+        if self.auto_jusqu > 0 {
+            self.auto_jusqu = now + 60 * CYCLES_PAR_SECONDE as u64;
+        }
+        self.auto_prochain = 0;
+        if self.auto_relache != 0 {
+            self.auto_relache = now + 1;
+        }
+    }
+
     fn pixel(&self, x: usize, y: usize) -> (i32, i32, i32) {
         let v = self.m.periph.display.vram.get(y * 128 + x).copied().unwrap_or(0) as i32;
         (((v >> 11) & 31) * 255 / 31, ((v >> 5) & 63) * 255 / 63, (v & 31) * 255 / 31)
@@ -241,7 +336,11 @@ pub unsafe extern "C" fn tama_screen(t: *mut Tama, out: *mut u16) -> i32 {
 /// Pins: A 0x09, B 0x0B, C 0x0A, wheel press 0x08, encoder 0x20 / 0x21.
 #[no_mangle]
 pub unsafe extern "C" fn tama_press(t: *mut Tama, pin: u32) {
-    (*t).m.appuyer(pin);
+    let t = &mut *t;
+    if t.reveiller() {
+        return; // the press wakes the console, as on the toy
+    }
+    t.m.appuyer(pin);
 }
 
 #[no_mangle]
@@ -258,7 +357,7 @@ pub unsafe extern "C" fn tama_note(t: *mut Tama) -> f32 {
 
 #[no_mangle]
 pub unsafe extern "C" fn tama_sleeping(t: *const Tama) -> i32 {
-    (*t).m.en_veille_profonde() as i32
+    (*t).en_veille() as i32
 }
 
 /// Snapshot of the whole machine (CPU, memories, peripherals) to a file. 0 ok, -1 error.
@@ -429,4 +528,29 @@ pub unsafe extern "C" fn tama_boot_awake(t: *mut Tama) -> i32 {
     s.declencher_reveil();
     s.reveil_demande = false;
     1
+}
+
+/// Wakes the console from its power-save sleep (as a key press does), so its screen stays on.
+/// Returns 1 when it was asleep.
+#[no_mangle]
+pub unsafe extern "C" fn tama_wake(t: *mut Tama) -> i32 {
+    (*t).reveiller() as i32
+}
+
+/// Debugging: the program counter, and the power-off request of the clock block (0x45000300).
+#[no_mangle]
+pub unsafe extern "C" fn tama_debug(t: *const Tama, out: *mut u32) {
+    let t = &*t;
+    *out = t.m.cpu.regs.pc;
+    *out.add(1) = t.m.periph.snsys.read_reg(0x300);
+    *out.add(2) = t.redemarrages;
+}
+
+/// Restarts the core, as the chip's watchdog does (the firmware waits for it after "reset all").
+#[no_mangle]
+pub unsafe extern "C" fn tama_reset(t: *mut Tama) {
+    let t = &mut *t;
+    t.m.reset();
+    t.m.is_running = true;
+    t.recaler();
 }

@@ -35,6 +35,9 @@ import UserNotifications
       case "keepAlive":
         self.tone.keepAlive(args["on"] as? Bool ?? false)
         result(nil)
+      case "keepScreenOn":
+        UIApplication.shared.isIdleTimerDisabled = args["on"] as? Bool ?? false
+        result(nil)
       case "askToNotify":
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
         result(nil)
@@ -43,7 +46,8 @@ import UserNotifications
         c.title = args["title"] as? String ?? "Tama"
         c.body = args["body"] as? String ?? ""
         c.sound = .default
-        let r = UNNotificationRequest(identifier: "tama-call", content: c, trigger: nil)
+        c.threadIdentifier = "tama-calls"
+        let r = UNNotificationRequest(identifier: "tama-call-\(Date().timeIntervalSince1970)", content: c, trigger: nil)
         UNUserNotificationCenter.current().add(r)
         result(nil)
       default:

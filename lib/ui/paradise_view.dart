@@ -6,6 +6,7 @@ import 'package:material_ui/material_ui.dart';
 import '../paradise/paradise_core.dart';
 import '../paradise/paradise_machine.dart';
 import '../services/app_state.dart';
+import '../services/native.dart';
 import '../services/rom_library.dart';
 import '../services/watch.dart';
 import 'screen_filters.dart';
@@ -33,6 +34,7 @@ class _ParadiseViewState extends State<ParadiseView> {
     super.initState();
     m.addListener(_onFrame);
     _onFrame();
+    NativeBridge.keepScreenOn(true);
   }
 
   @override
@@ -47,6 +49,7 @@ class _ParadiseViewState extends State<ParadiseView> {
   @override
   void dispose() {
     m.removeListener(_onFrame);
+    NativeBridge.keepScreenOn(false);
     super.dispose();
   }
 
@@ -75,6 +78,40 @@ class _ParadiseViewState extends State<ParadiseView> {
     });
   }
 
+  /// The phone's keyboard for the game's naming screens: what is typed is entered letter by letter
+  /// with the picker, as one would with the dial.
+  Future<void> _type(BuildContext context) async {
+    final ctl = TextEditingController();
+    final text = await showDialog<String>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('Type a name'),
+        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('On the game\'s naming screen, with the cursor on the first empty box. Letters, digits and spaces.',
+              style: TextStyle(color: Colors.white60, fontSize: 13)),
+          const SizedBox(height: 12),
+          TextField(
+            controller: ctl,
+            autofocus: true,
+            maxLength: 8,
+            textCapitalization: TextCapitalization.characters,
+            inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9 ]'))],
+            onSubmitted: (v) => Navigator.pop(c, v),
+          ),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(c, ctl.text), child: const Text('Type it')),
+        ],
+      ),
+    );
+    if (text == null || text.isEmpty) return;
+    final skipped = await m.typeText(text);
+    if (context.mounted && skipped.isNotEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Not on the picker: $skipped')));
+    }
+  }
+
   Widget _key(String label, int pin, {double size = 70}) => _HoldKey(
         label: label,
         size: size,
@@ -92,6 +129,11 @@ class _ParadiseViewState extends State<ParadiseView> {
       appBar: AppBar(
         title: Text(widget.rom.name),
         actions: [
+          IconButton(
+            tooltip: 'Type a name',
+            icon: const Icon(Icons.keyboard_rounded),
+            onPressed: m.typing ? null : () => _type(context),
+          ),
           IconButton(
             tooltip: 'Sound',
             icon: Icon(m.sound ? Icons.volume_up_rounded : Icons.volume_off_rounded),
@@ -181,7 +223,7 @@ class _ParadiseViewState extends State<ParadiseView> {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        m.error ?? (m.running ? '${(m.load * 100).round()} % speed' : 'Paused'),
+                        m.error ?? (m.typing ? 'Typing … ${(m.typingProgress * 100).round()} %' : (m.running ? '${(m.load * 100).round()} % speed' : 'Paused')),
                         style: TextStyle(color: m.error != null ? Colors.redAccent : Colors.white38, fontSize: 11),
                       ),
                     ]),

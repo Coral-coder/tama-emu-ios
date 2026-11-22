@@ -17,6 +17,7 @@ final class Console: ObservableObject {
   private var last = Date()
   private var lastSave = Date()
   private var awayAt: Date?
+  private var quietSince = Date.distantPast
   private let fb = UnsafeMutablePointer<UInt16>.allocate(capacity: 128 * 128)
   private var rgba = [UInt8](repeating: 255, count: 128 * 128 * 4)
   private let tone = WatchTone()
@@ -30,6 +31,11 @@ final class Console: ObservableObject {
   func play(_ g: WatchGame) {
     stop()
     let lib = WatchLibrary.shared
+    // the watch only carries on games set up on the phone
+    guard let size = try? FileManager.default.attributesOfItem(atPath: lib.save(g.id).path)[.size] as? NSNumber, size.intValue > 0 else {
+      error = "Start this game on your iPhone first, then send it to the watch."
+      return
+    }
     guard let t = tama_new() else { return }
     let r = tama_load(t, lib.dump(g.id).path, g.key, 1)
     if r != 1 {
@@ -43,6 +49,8 @@ final class Console: ObservableObject {
     self.t = t
     playing = g.id
     error = nil
+    // keeps the game in front for a while after the wrist goes down
+    WKApplication.shared().isFrontmostTimeoutExtended = true
     start()
   }
 
@@ -111,7 +119,17 @@ final class Console: ObservableObject {
     due -= Double(done)
     if dt > 0 { speed = speed * 0.9 + 0.1 * min(1, Double(done) / (cps * dt)) }
     if tama_screen(t, fb) != 0 { draw() }
-    tone.set(tama_note(t))
+    let note = tama_note(t)
+    tone.set(note)
+    // every sound taps the wrist (one tap per melody: after 3 s of quiet)
+    if note > 0 {
+      if now.timeIntervalSince(quietSince) > 3 { WKInterfaceDevice.current().play(.notification) }
+      quietSince = .distantFuture
+    } else if quietSince == .distantFuture {
+      quietSince = now
+    }
+    // the console's screen stays on while the game is shown
+    if tama_sleeping(t) != 0 { tama_wake(t) }
     if now.timeIntervalSince(lastSave) > 60 { saveNow(send: false) }
     if tama_running(t) == 0 {
       error = "The console stopped."

@@ -45,4 +45,13 @@ class NativeBridge {
       debugPrint('notify: $e');
     }
   }
+
+  /// Keeps the phone's screen from locking while a game is shown.
+  static Future<void> keepScreenOn(bool on) async {
+    try {
+      await _ch.invokeMethod('keepScreenOn', {'on': on});
+    } catch (e) {
+      debugPrint('keepScreenOn: $e');
+    }
+  }
 }

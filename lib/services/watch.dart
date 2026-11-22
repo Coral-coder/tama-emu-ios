@@ -63,6 +63,11 @@ class WatchLink {
       if (st['supported'] != true || st['paired'] != true) return 'No Apple Watch is paired with this iPhone.';
       if (st['installed'] != true) return 'Install Tama on your Apple Watch first (Watch app on the iPhone → Available apps).';
       if (app.paradiseRom?.id == e.id) await app.stopParadise();
+      // a new game is set up on the phone; the watch only carries on a game already started
+      final save = app.library.paradiseSave(e);
+      if (!await save.exists() || await save.length() == 0) {
+        return 'Start this game on the iPhone first (hatch and name your Tamagotchi), then send it to the watch.';
+      }
       final dump = await app.library.romFile(e);
       await _ch.invokeMethod('send', {
         'id': e.id,

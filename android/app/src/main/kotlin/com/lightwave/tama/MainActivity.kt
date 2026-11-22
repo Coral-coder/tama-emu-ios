@@ -33,6 +33,11 @@ class MainActivity : FlutterActivity() {
                     }
                     result.success(null)
                 }
+                "keepScreenOn" -> {
+                    if (call.argument<Boolean>("on") == true) window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    else window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    result.success(null)
+                }
                 "askToNotify" -> {
                     if (Build.VERSION.SDK_INT >= 33) requestPermissions(arrayOf("android.permission.POST_NOTIFICATIONS"), 7)
                     result.success(null)
@@ -45,7 +50,7 @@ class MainActivity : FlutterActivity() {
                     val open = android.app.PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), android.app.PendingIntent.FLAG_IMMUTABLE)
                     @Suppress("DEPRECATION")
                     val b = if (Build.VERSION.SDK_INT >= 26) android.app.Notification.Builder(this, "calls") else android.app.Notification.Builder(this)
-                    nm.notify(2, b.setContentTitle(call.argument<String>("title") ?: "Tama")
+                    nm.notify((System.currentTimeMillis() % 100000).toInt() + 10, b.setContentTitle(call.argument<String>("title") ?: "Tama")
                         .setContentText(call.argument<String>("body") ?: "")
                         .setSmallIcon(R.mipmap.ic_launcher).setAutoCancel(true).setContentIntent(open).build())
                     result.success(null)

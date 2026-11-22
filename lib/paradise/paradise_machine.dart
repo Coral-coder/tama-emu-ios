@@ -46,8 +46,9 @@ class ParadiseMachine extends ChangeNotifier {
     }
     h.openSave(savePath);
     // the game's clock follows the phone (no date and time to set by hand)
-    h.syncClock();
-    h.autoDate();
+    // the date screens of a new start confirm themselves when the clock could be set (the form
+    // is then filled in with the phone's date)
+    if (h.syncClock() > 0) h.autoDate();
     _h = h;
     error = null;
     start();
@@ -90,7 +91,7 @@ class ParadiseMachine extends ChangeNotifier {
     // at most a quarter of a second behind: past that the emulation does not race to catch up
     if (_due > cps * 0.25 * speed) _due = cps * 0.25 * speed;
     final want = _due.floor();
-    final done = want > 0 ? h.run(want, 12) : 0;
+    final done = (want > 0 ? h.run(want, 12) : 0).clamp(0, want > 0 ? want : 0);
     _due -= done;
     if (dt > 0) load = load * 0.9 + 0.1 * (done / (cps * speed * dt)).clamp(0, 1);
     if (h.screen(screen)) {
@@ -100,18 +101,20 @@ class ParadiseMachine extends ChangeNotifier {
     final note = h.note();
     _tone(sound ? note : 0);
     _watchCalls(note);
+    // there is no display to save here: while the game is on screen, the console's screen stays on
+    if (!background && keepScreenOn && h.sleeping) h.wake();
     if (!h.running) {
       error = 'The console stopped.';
       pause();
     }
   }
 
-  /// While the app is in the background, a sound after a quiet spell is the pet calling:
-  /// [onCall] posts a notification (at most one every 10 minutes).
+  /// While the app is in the background, every sound (after 3 s of quiet: one melody is one
+  /// sound) makes [onCall] post a notification.
   bool background = false;
+  bool keepScreenOn = true;
   void Function(String title)? onCall;
   int _quietSince = 0;
-  int _lastCall = 0;
   void _watchCalls(double note) {
     final ms = DateTime.now().millisecondsSinceEpoch;
     if (note <= 0) {
@@ -120,10 +123,7 @@ class ParadiseMachine extends ChangeNotifier {
     }
     final quiet = _quietSince == 0 ? 0 : ms - _quietSince;
     _quietSince = 0;
-    if (background && quiet > 20000 && ms - _lastCall > 600000) {
-      _lastCall = ms;
-      onCall?.call(title);
-    }
+    if (background && quiet > 3000) onCall?.call(title);
   }
 
   /// Resumes after the app comes back: the console's clock catches up with the time it was held.
@@ -161,6 +161,66 @@ class ParadiseMachine extends ChangeNotifier {
     h.release(a);
     await Future<void>.delayed(step);
     h.release(b);
+  }
+
+  /// Types [text] into the game's naming screen (the cursor on the box to fill): for each
+  /// character the picker opens (OK), the group is chosen (letters or digits: → steps through the
+  /// groups), OK enters it, the dial turns to the character, OK writes it and the cursor moves on.
+  /// Letters A to Z, digits and spaces; returns the characters it could not type.
+  bool typing = false;
+  double typingProgress = 0;
+  Future<String> typeText(String text, {void Function()? onStep}) async {
+    if (typing || _h == null) return text;
+    typing = true;
+    final skipped = StringBuffer();
+    Future<void> key(int pin) async {
+      press(pin);
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      release(pin);
+      await Future<void>.delayed(const Duration(milliseconds: 650));
+    }
+
+    try {
+      final chars = text.toUpperCase().split('');
+      for (var n = 0; n < chars.length; n++) {
+        final c = chars[n];
+        final p = _pickerPlace(c);
+        if (p == null) {
+          skipped.write(c);
+          continue;
+        }
+        await key(ParadiseHandle.pinB); // open the picker (letters)
+        for (var g = 0; g < p.$1; g++) {
+          await key(ParadiseHandle.pinA); // next group
+        }
+        await key(ParadiseHandle.pinB); // into the group
+        for (var i = 0; i < p.$2; i++) {
+          await turn(true);
+          await Future<void>.delayed(const Duration(milliseconds: 280));
+        }
+        await key(ParadiseHandle.pinB); // write it; the cursor moves on
+        typingProgress = (n + 1) / chars.length;
+        notifyListeners();
+      }
+    } finally {
+      typing = false;
+      typingProgress = 0;
+      notifyListeners();
+    }
+    return skipped.toString();
+  }
+
+  /// (group, steps) of a character in the picker: the groups go letters, digits, symbols, ...;
+  /// in a group the characters come six at a time with a space between ("ABCDEF GHIJKL ...").
+  static (int, int)? _pickerPlace(String c) {
+    const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    const digits = '1234567890';
+    if (c == ' ') return (0, 6);
+    final l = letters.indexOf(c);
+    if (l >= 0) return (0, l + l ~/ 6);
+    final d = digits.indexOf(c);
+    if (d >= 0) return (1, d + d ~/ 6);
+    return null;
   }
 
   void save() {
