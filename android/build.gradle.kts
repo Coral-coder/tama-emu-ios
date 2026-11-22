@@ -27,6 +27,11 @@ subprojects {
     }
     if (state.executed) fix() else afterEvaluate { fix() }
 }
+// Release lint of the plugins crashes on some JDKs (webview_flutter_android); it checks the plugins,
+// not this app, so it is skipped.
+subprojects {
+    tasks.matching { it.name.startsWith("lintVital") }.configureEach { enabled = false }
+}
 subprojects {
     project.evaluationDependsOn(":app")
 }
