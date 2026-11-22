@@ -413,8 +413,6 @@ jobs:
             exit 1
           fi
           tail -60 build/xcodebuild.log
-          # the driver target was only for this archive; the recorded project stays as committed
-          git checkout -- Runner.xcodeproj 2>/dev/null || true
 
       - name: Upload to TestFlight
         if: env.UPLOAD == 'true'
@@ -431,21 +429,53 @@ jobs:
             <key>uploadSymbols</key><true/>
           </dict></plist>
           PLIST
-          xcodebuild -exportArchive -archivePath "build/$SCHEME.xcarchive" \
-            -exportOptionsPlist build/ExportOptions.plist -exportPath build/upload \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$ASC_KEY_PATH" \
-            -authenticationKeyID "$ASC_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+          export_upload() {
+            xcodebuild -exportArchive -archivePath "build/$SCHEME.xcarchive" \
+              -exportOptionsPlist build/ExportOptions.plist -exportPath build/upload \
+              -allowProvisioningUpdates \
+              -authenticationKeyPath "$ASC_KEY_PATH" \
+              -authenticationKeyID "$ASC_KEY_ID" \
+              -authenticationKeyIssuerID "$ASC_ISSUER_ID" 2>&1 | tee build/export.log
+            return "${PIPESTATUS[0]}"
+          }
+          if ! export_upload; then
+            if [ ! -f build_driverkit_added ]; then exit 1; fi
+            # The App Store profile of the USB driver lacks the DriverKit capabilities (they are
+            # granted by Apple and switched on per identifier in the developer portal). Say so,
+            # then upload the app without the driver.
+            grep -E "error:" build/export.log | sort -u | while IFS= read -r line; do echo "::warning::USB driver: $line"; done
+            echo "### USB serial driver left out: its App Store profile lacks the DriverKit capabilities" >> "$GITHUB_STEP_SUMMARY"
+            rm -f build_driverkit_added
+            git checkout -- Runner.xcodeproj
+            rm -rf "build/$SCHEME.xcarchive" build/upload
+            if [ -d "${PROJECT%.xcodeproj}.xcworkspace" ]; then where=(-workspace "${PROJECT%.xcodeproj}.xcworkspace"); else where=(-project "$PROJECT"); fi
+            xcodebuild "${where[@]}" -scheme "$SCHEME" -configuration Release \
+              -destination 'generic/platform=iOS' -archivePath "build/$SCHEME.xcarchive" \
+              -allowProvisioningUpdates \
+              -authenticationKeyPath "$ASC_KEY_PATH" \
+              -authenticationKeyID "$ASC_KEY_ID" \
+              -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+              DEVELOPMENT_TEAM="$TEAM_ID" CODE_SIGN_STYLE=Automatic \
+              ENABLE_DEBUG_DYLIB=NO ENABLE_PREVIEWS=NO \
+              MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+              archive > build/xcodebuild-nodriver.log 2>&1 || { tail -60 build/xcodebuild-nodriver.log; exit 1; }
+            export_upload
+          fi
           echo "Uploaded $VERSION ($BUILD_NUMBER). It appears in TestFlight after Apple finishes processing (usually 5 to 20 minutes)."
           echo "### TestFlight: uploaded $APP_NAME $VERSION ($BUILD_NUMBER)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Restore the project file
+        if: always()
+        run: git checkout -- Runner.xcodeproj 2>/dev/null || true
 
       - name: Keep the driver build log
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: xcodebuild-logs
-          path: ${{ needs.plan.outputs.dir }}/build/xcodebuild*.log
+          path: |
+            ${{ needs.plan.outputs.dir }}/build/xcodebuild*.log
+            ${{ needs.plan.outputs.dir }}/build/export.log
           if-no-files-found: ignore
           retention-days: 7
 
