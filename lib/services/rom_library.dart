@@ -20,6 +20,7 @@ class RomEntry {
     this.asset,
     this.file,
     this.note,
+    this.deviceKey,
   });
 
   final String id;
@@ -29,6 +30,9 @@ class RomEntry {
   final String? asset; // gzip asset in the app bundle
   final File? file; // imported copy in the app's documents
   final String? note;
+
+  /// Device key of a built-in Paradise dump (its firmware is locked to the device it came from).
+  final int? deviceKey;
 
   bool get bundled => asset != null;
 
@@ -73,6 +77,7 @@ class RomLibrary extends ChangeNotifier {
           size: m['size'] as int,
           asset: 'assets/roms/${m['file']}',
           note: m['note'] as String?,
+          deviceKey: m['key'] is String ? int.tryParse(m['key'] as String, radix: 16) : null,
         ));
       }
     } catch (_) {

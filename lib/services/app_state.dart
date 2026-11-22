@@ -95,7 +95,7 @@ class AppState extends ChangeNotifier {
   /// Device key of a Paradise dump (stored per ROM), or null.
   int? paradiseKey(RomEntry e) {
     final v = prefs.getString('pkey_${e.id}');
-    return v == null ? null : int.tryParse(v, radix: 16);
+    return (v == null ? null : int.tryParse(v, radix: 16)) ?? e.deviceKey;
   }
 
   Future<void> setParadiseKey(RomEntry e, int key) => prefs.setString('pkey_${e.id}', key.toRadixString(16).padLeft(8, '0'));

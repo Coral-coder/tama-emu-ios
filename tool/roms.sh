@@ -25,11 +25,23 @@ PY
   decrypt)
     if [ -z "${ROM_KEY:-}" ]; then echo "ROM_KEY not set: building without the built-in ROMs"; exit 0; fi
     mkdir -p assets/roms
-    for e in "$ENC"/*.enc; do
+    for e in "$ENC"/*.bin.gz.enc; do
       out="assets/roms/$(basename "$e" .enc)"
       openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:ROM_KEY -in "$e" -out "$out"
     done
     cp "$ENC/index.json" assets/roms/index.json
-    echo "decrypted $(ls "$ENC"/*.enc | wc -l) ROMs into assets/roms";;
+    # the device keys of the built-in dumps (keys.json.enc: {"<id>": "<8 hex digits>"}) go into the index
+    if [ -f "$ENC/keys.json.enc" ]; then
+      openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:ROM_KEY -in "$ENC/keys.json.enc" -out assets/roms/keys.json
+      python3 - <<'PY'
+import json
+idx = json.load(open('assets/roms/index.json')); keys = json.load(open('assets/roms/keys.json'))
+for e in idx:
+    if e['id'] in keys: e['key'] = keys[e['id']]
+json.dump(idx, open('assets/roms/index.json', 'w'), indent=1)
+PY
+      rm assets/roms/keys.json
+    fi
+    echo "decrypted $(ls "$ENC"/*.bin.gz.enc | wc -l) ROMs into assets/roms";;
   *) echo "usage: $0 add <file> <id> <name> | decrypt"; exit 1;;
 esac
