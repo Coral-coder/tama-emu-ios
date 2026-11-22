@@ -70,6 +70,13 @@ embed.dst_subfolder_spec = '16'
 embed.dst_path = '$(SYSTEM_EXTENSIONS_FOLDER_PATH)'
 bf = embed.add_file_reference(product)
 bf.settings = { 'ATTRIBUTES' => ['RemoveHeadersOnCopy'] }
+# Right after the app's own "Embed Frameworks", before Flutter's script phases ("Thin Binary"
+# has no declared outputs: a copy phase behind it makes a dependency cycle).
+app.build_phases.delete(embed)
+anchor = app.build_phases.index { |ph| ph.display_name == 'Embed Frameworks' } ||
+         app.build_phases.index { |ph| ph.is_a?(Xcodeproj::Project::Object::PBXResourcesBuildPhase) }
+app.build_phases.insert(anchor + 1, embed)
+puts 'app build phases: ' + app.build_phases.map(&:display_name).join(' | ')
 
 app.build_configurations.each do |c|
   c.build_settings['CODE_SIGN_ENTITLEMENTS'] = 'Runner/Runner.entitlements'
