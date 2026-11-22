@@ -233,3 +233,59 @@ pub extern "C" fn tama_find_key_progress() -> u64 {
 pub extern "C" fn tama_find_key_stop() {
     KEY_STOP.store(true, Ordering::Relaxed);
 }
+
+// ---- clock: the game's time is the settings' clock origin (days and seconds since 2000-01-01,
+// at +12 / +16 of a settings page with a CRC-16/ARC over bytes 4.. at +0 and its inverse at +2)
+// plus the console's seconds counter. Setting the origin makes the game show the phone's time. ----
+
+const SETTINGS_PAGES: [usize; 7] = [0xEFE000, 0xEFF000, 0xD86000, 0xD87000, 0xD88000, 0xD89000, 0xD8A000];
+
+fn crc16_arc(d: &[u8]) -> u16 {
+    let mut c: u16 = 0;
+    for &b in d {
+        c ^= b as u16;
+        for _ in 0..8 {
+            c = if c & 1 != 0 { (c >> 1) ^ 0xA001 } else { c >> 1 };
+        }
+    }
+    c
+}
+
+/// Sets the game's clock to `local_secs_since_2000` (the phone's local time, seconds since
+/// 2000-01-01 00:00). Call it after loading the dump and its save, before the console runs on.
+/// Returns how many settings pages were set (0: no valid settings page).
+#[no_mangle]
+pub unsafe extern "C" fn tama_sync_clock(t: *mut Tama, local_secs_since_2000: u64) -> i32 {
+    let t = &mut *t;
+    let counter = t.m.periph.snsys.secondes as i64;
+    let origin = local_secs_since_2000 as i64 - counter;
+    if origin < 0 {
+        return 0;
+    }
+    let (days, sec) = ((origin / 86400) as u32, (origin % 86400) as u32);
+    let mut n = 0;
+    for &a in SETTINGS_PAGES.iter() {
+        let flash = &mut t.m.bus.flash;
+        if a + 0x1000 > flash.data.len() {
+            continue;
+        }
+        let p = &mut flash.data[a..a + 0x1000];
+        let c = crc16_arc(&p[4..]);
+        let stored = u16::from_le_bytes([p[0], p[1]]);
+        let inv = u16::from_le_bytes([p[2], p[3]]);
+        let d0 = u32::from_le_bytes([p[12], p[13], p[14], p[15]]);
+        let s0 = u32::from_le_bytes([p[16], p[17], p[18], p[19]]);
+        if stored != c || inv != !c || d0 > 40000 || s0 >= 86400 {
+            continue;
+        }
+        p[12..16].copy_from_slice(&days.to_le_bytes());
+        p[16..20].copy_from_slice(&sec.to_le_bytes());
+        let c2 = crc16_arc(&p[4..]);
+        p[0..2].copy_from_slice(&c2.to_le_bytes());
+        p[2..4].copy_from_slice(&(!c2).to_le_bytes());
+        flash.pages_salies.insert(a / 0x1000);
+        flash.revision = flash.revision.wrapping_add(1);
+        n += 1;
+    }
+    n
+}

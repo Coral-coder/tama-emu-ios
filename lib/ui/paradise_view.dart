@@ -7,6 +7,7 @@ import '../paradise/paradise_core.dart';
 import '../paradise/paradise_machine.dart';
 import '../services/app_state.dart';
 import '../services/rom_library.dart';
+import 'screen_filters.dart';
 import 'theme.dart';
 
 /// The Tamagotchi Paradise, played: its colour screen, A / B / C and the dial.
@@ -62,7 +63,9 @@ class _ParadiseViewState extends State<ParadiseView> {
       _rgba[i * 4 + 2] = (v & 31) * 255 ~/ 31;
       _rgba[i * 4 + 3] = 255;
     }
-    ui.decodeImageFromPixels(_rgba, 128, 128, ui.PixelFormat.rgba8888, (im) {
+    final app = AppState.instance;
+    final f = processFrame(_rgba, app.upscale, app.filter);
+    ui.decodeImageFromPixels(f.rgba, f.w, f.h, ui.PixelFormat.rgba8888, (im) {
       if (!mounted) return;
       setState(() {
         _img?.dispose();
@@ -98,6 +101,10 @@ class _ParadiseViewState extends State<ParadiseView> {
               switch (v) {
                 case 'pause':
                   m.running ? m.pause() : m.start();
+                case 'look':
+                  if (context.mounted) await pickScreenLook(context);
+                  _shown = -1;
+                  _onFrame();
                 case 'stop':
                   await app.stopParadise();
               }
@@ -105,6 +112,7 @@ class _ParadiseViewState extends State<ParadiseView> {
             },
             itemBuilder: (_) => [
               PopupMenuItem(value: 'pause', child: Text(m.running ? 'Pause' : 'Run')),
+              const PopupMenuItem(value: 'look', child: Text('Upscaler & filter …')),
               const PopupMenuItem(value: 'stop', child: Text('Back to the games')),
             ],
           ),
@@ -135,7 +143,15 @@ class _ParadiseViewState extends State<ParadiseView> {
                         borderRadius: BorderRadius.circular(12),
                         child: _img == null
                             ? const Center(child: CircularProgressIndicator())
-                            : RawImage(image: _img, fit: BoxFit.contain, filterQuality: FilterQuality.none),
+                            : Stack(fit: StackFit.expand, children: [
+                                RawImage(
+                                  image: _img,
+                                  fit: BoxFit.contain,
+                                  filterQuality: app.upscale == Upscale.smooth || app.upscale == Upscale.hq ? FilterQuality.medium : FilterQuality.none,
+                                ),
+                                if (app.filter == ScreenFilter.lcd || app.filter == ScreenFilter.scanlines || app.filter == ScreenFilter.crt)
+                                  IgnorePointer(child: CustomPaint(painter: OverlayPainter(app.filter))),
+                              ]),
                       ),
                     ),
                   ),
@@ -208,3 +224,68 @@ class _HoldKeyState extends State<_HoldKey> {
   }
 }
 
+
+
+/// Lines over the picture: the LCD's dot grid, or a CRT's scanlines.
+class OverlayPainter extends CustomPainter {
+  OverlayPainter(this.filter);
+  final ScreenFilter filter;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final px = size.width / 128;
+    final p = Paint()..color = Colors.black.withValues(alpha: filter == ScreenFilter.lcd ? 0.28 : 0.35);
+    if (filter == ScreenFilter.lcd) {
+      for (var i = 1; i < 128; i++) {
+        canvas.drawRect(Rect.fromLTWH(i * px - px * 0.08, 0, px * 0.16, size.height), p);
+        canvas.drawRect(Rect.fromLTWH(0, i * px - px * 0.08, size.width, px * 0.16), p);
+      }
+    } else {
+      for (var i = 0; i < 128; i++) {
+        canvas.drawRect(Rect.fromLTWH(0, i * px + px * 0.55, size.width, px * 0.45), p);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(OverlayPainter old) => old.filter != filter;
+}
+
+/// Picks the upscaler and the filter (kept for every game).
+Future<void> pickScreenLook(BuildContext context) {
+  final app = AppState.instance;
+  return showModalBottomSheet<void>(
+    context: context,
+    builder: (c) => StatefulBuilder(
+      builder: (c, setS) => SafeArea(
+        child: ListView(shrinkWrap: true, children: [
+          const ListTile(title: Text('Upscaler')),
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            for (final u in Upscale.values)
+              ChoiceChip(
+                label: Text(u.label),
+                selected: app.upscale == u,
+                onSelected: (_) {
+                  app.setLook(upscale: u);
+                  setS(() {});
+                },
+              ),
+          ]),
+          const ListTile(title: Text('Filter')),
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            for (final f in ScreenFilter.values)
+              ChoiceChip(
+                label: Text(f.label),
+                selected: app.filter == f,
+                onSelected: (_) {
+                  app.setLook(filter: f);
+                  setS(() {});
+                },
+              ),
+          ]),
+          const SizedBox(height: 16),
+        ]),
+      ),
+    ),
+  );
+}

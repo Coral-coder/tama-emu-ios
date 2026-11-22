@@ -1,38 +1,88 @@
-# Draws the app icon (an amber egg-shaped toy with a dot-matrix screen) and writes every size.
-import sys, os, glob, re
+# Draws the app icon: an original pixel-art Tama (a round sprout creature with a flower), on a
+# transparent background (Android, store art) and on a soft gradient for iOS, which allows no
+# transparency in app icons.
+import sys, glob, re
 from PIL import Image, ImageDraw
+
+# 32 x 32 sprite, one character per pixel
+SPRITE = """
+................................
+..............RRR...............
+.............RYYYR..............
+............RRYYYRR.............
+.............RRRRR..............
+...............G................
+..............GGG...............
+.............GG.GG..............
+.........OOOOOOOOOOOOO..........
+.......OOPPPPPPPPPPPPPOO........
+......OPPPPPPPPPPPPPPPPPO.......
+.....OPPPPPPPPPPPPPPPPPPPO......
+....OPPPPWWPPPPPPPPPWWPPPPO.....
+....OPPPWWKKPPPPPPPWWKKPPPO.....
+...OPPPPWKKKPPPPPPPWKKKPPPPO....
+...OPPPPWKKKPPPPPPPWKKKPPPPO....
+...OPPPPPKKPPPPPPPPPKKPPPPPO....
+...OPCCPPPPPPPPPPPPPPPPPCCPO....
+...OPCCPPPPPPKPPPKPPPPPPCCPO....
+...OPPPPPPPPPPKKKPPPPPPPPPPO....
+....OPPPPPPPPPPPPPPPPPPPPPO.....
+....OPPPPPPPPPPPPPPPPPPPPPO.....
+.....OPPPPPPPPPPPPPPPPPPPO......
+......OPPPPPPPPPPPPPPPPPO.......
+.......OOPPPPPPPPPPPPPOO........
+........OPPOOOOOOOOPPO..........
+........OPPO......OPPO..........
+........OOOO......OOOO..........
+................................
+................................
+................................
+................................
+"""
+COL = {
+    'O': (70, 32, 60, 255),     # outline
+    'P': (255, 170, 205, 255),  # body
+    'W': (255, 255, 255, 255),  # eye shine
+    'K': (40, 20, 40, 255),     # eyes, mouth
+    'C': (255, 110, 150, 255),  # cheeks
+    'R': (255, 90, 120, 255),   # petals
+    'Y': (255, 220, 70, 255),   # flower centre
+    'G': (80, 190, 90, 255),    # stem
+}
+
+def sprite(size):
+    rows = [r for r in SPRITE.strip('\n').split('\n')]
+    s = Image.new('RGBA', (32, 32), (0, 0, 0, 0))
+    for y, row in enumerate(rows):
+        for x, ch in enumerate(row):
+            if ch in COL:
+                s.putpixel((x, y), COL[ch])
+    # centre the drawing, keep a margin, scale with hard pixels
+    bbox = s.getbbox()
+    s = s.crop(bbox)
+    w, h = s.size
+    scale = int(size * 0.8 / max(w, h))
+    big = s.resize((w * scale, h * scale), Image.NEAREST)
+    out = Image.new('RGBA', (size, size), (0, 0, 0, 0))
+    out.paste(big, ((size - big.width) // 2, (size - big.height) // 2), big)
+    return out
+
 S = 1024
-img = Image.new('RGB', (S, S), (12, 13, 16))
-d = ImageDraw.Draw(img)
-# soft background glow
-for r in range(520, 0, -8):
-    c = int(12 + (40 - 12) * (1 - r / 520) * 0.6)
-    d.ellipse([S/2 - r, S/2 - r + 40, S/2 + r, S/2 + r + 40], fill=(c, c - 2 if c > 2 else 0, max(0, c - 10)))
-# egg body
-d.ellipse([170, 110, 854, 950], fill=(255, 176, 0))
-d.ellipse([200, 140, 824, 920], fill=(255, 190, 40))
-# screen
-d.rounded_rectangle([290, 300, 734, 640], radius=40, fill=(20, 22, 18))
-d.rounded_rectangle([320, 330, 704, 610], radius=24, fill=(185, 195, 163))
-# a little pet in dots (16 x 12 grid)
-pet = ["....XXXXXX......", "...X......X.....", "..X..X..X..X....", "..X........X....", "..X..XXXX..X....",
-       "...X......X.....", "....XXXXXX......", "...X.X..X.X.....", "..X..X..X..X....", "......XX........"]
-u = 22
-ox, oy = 512 - 7 * u, 350 + 1 * u
-for y, row in enumerate(pet):
-    for x, ch in enumerate(row):
-        if ch == 'X':
-            d.rectangle([ox + x * u + 2, oy + y * u + 2, ox + (x + 1) * u - 2, oy + (y + 1) * u - 2], fill=(28, 35, 22))
-# three keys
-for i, cx in enumerate([380, 512, 644]):
-    cy = 760 + (30 if i == 1 else 0)
-    d.ellipse([cx - 44, cy - 44, cx + 44, cy + 44], fill=(20, 22, 26))
-img.save(sys.argv[1] + '/icon-1024.png')
-ios = 'ios/Runner/Assets.xcassets/AppIcon.appiconset'
-for f in glob.glob(ios + '/Icon-App-*.png'):
+transparent = sprite(S)
+bg = Image.new('RGBA', (S, S))
+d = ImageDraw.Draw(bg)
+for y in range(S):  # soft night-sky gradient
+    t = y / S
+    d.line([(0, y), (S, y)], fill=(int(40 + 30 * t), int(26 + 20 * t), int(70 + 40 * t), 255))
+ios = Image.alpha_composite(bg, transparent).convert('RGB')
+
+out = sys.argv[1]
+transparent.save(f'{out}/icon-transparent-1024.png')
+ios.save(f'{out}/icon-1024.png')
+for f in glob.glob('ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-*.png'):
     m = re.search(r'(\d+(?:\.\d+)?)x\d+(?:\.\d+)?@(\d)x', f)
     px = int(round(float(m.group(1)) * int(m.group(2))))
-    img.resize((px, px), Image.LANCZOS).save(f)
+    ios.resize((px, px), Image.LANCZOS).save(f)
 for dpi, px in {'mdpi': 48, 'hdpi': 72, 'xhdpi': 96, 'xxhdpi': 144, 'xxxhdpi': 192}.items():
-    img.resize((px, px), Image.LANCZOS).save(f'android/app/src/main/res/mipmap-{dpi}/ic_launcher.png')
+    transparent.resize((px, px), Image.NEAREST if px % 32 == 0 else Image.LANCZOS).save(f'android/app/src/main/res/mipmap-{dpi}/ic_launcher.png')
 print('icons written')

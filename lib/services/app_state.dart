@@ -7,6 +7,7 @@ import '../emu/machine.dart';
 import '../emu/rom_info.dart';
 import '../paradise/paradise_core.dart';
 import '../paradise/paradise_machine.dart';
+import '../ui/screen_filters.dart';
 import 'native.dart';
 import 'rom_library.dart';
 import 'serial/serial_hub.dart';
@@ -28,6 +29,9 @@ enum LinkMode {
   const LinkMode(this.label);
   final String label;
 }
+
+/// The device key every one of these Paradise dumps opens with.
+const int kParadiseKey = 0x5AAF34FB;
 
 class AppState extends ChangeNotifier {
   AppState._();
@@ -51,6 +55,16 @@ class AppState extends ChangeNotifier {
   bool sound = true;
   bool backgroundRun = true;
   bool ghostDots = true;
+  Upscale upscale = Upscale.scale2x;
+  ScreenFilter filter = ScreenFilter.none;
+
+  Future<void> setLook({Upscale? upscale, ScreenFilter? filter}) async {
+    if (upscale != null) this.upscale = upscale;
+    if (filter != null) this.filter = filter;
+    await prefs.setString('upscale', this.upscale.name);
+    await prefs.setString('filter', this.filter.name);
+    notifyListeners();
+  }
 
   late SharedPreferences prefs;
 
@@ -64,6 +78,8 @@ class AppState extends ChangeNotifier {
     sound = prefs.getBool('sound') ?? true;
     backgroundRun = prefs.getBool('backgroundRun') ?? true;
     ghostDots = prefs.getBool('ghostDots') ?? true;
+    upscale = Upscale.values.asNameMap()[prefs.getString('upscale')] ?? Upscale.scale2x;
+    filter = ScreenFilter.values.asNameMap()[prefs.getString('filter')] ?? ScreenFilter.none;
     NativeBridge.volume = prefs.getDouble('volume') ?? 0.35;
     tunnel.myName = prefs.getString('myName') ?? 'Tama';
     await library.init();
@@ -95,7 +111,7 @@ class AppState extends ChangeNotifier {
   /// Device key of a Paradise dump (stored per ROM), or null.
   int? paradiseKey(RomEntry e) {
     final v = prefs.getString('pkey_${e.id}');
-    return (v == null ? null : int.tryParse(v, radix: 16)) ?? e.deviceKey;
+    return (v == null ? null : int.tryParse(v, radix: 16)) ?? e.deviceKey ?? kParadiseKey;
   }
 
   Future<void> setParadiseKey(RomEntry e, int key) => prefs.setString('pkey_${e.id}', key.toRadixString(16).padLeft(8, '0'));

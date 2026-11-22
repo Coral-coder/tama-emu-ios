@@ -45,6 +45,8 @@ class ParadiseMachine extends ChangeNotifier {
       return r;
     }
     h.openSave(savePath);
+    // the game's clock follows the phone (no date and time to set by hand)
+    h.syncClock();
     _h = h;
     error = null;
     start();

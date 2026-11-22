@@ -30,6 +30,8 @@ typedef _U64N = Uint64 Function();
 typedef _U64D = int Function();
 typedef _VoidN = Void Function();
 typedef _VoidD = void Function();
+typedef _ClockN = Int32 Function(Pointer<_Tama>, Uint64);
+typedef _ClockD = int Function(Pointer<_Tama>, int);
 typedef _KeyN = Int32 Function(Pointer<Utf8>, Uint32, Pointer<Uint32>);
 typedef _KeyD = int Function(Pointer<Utf8>, int, Pointer<Uint32>);
 
@@ -56,6 +58,7 @@ class ParadiseCore {
         _snapshot = l.lookupFunction<_PathN, _PathD>('tama_snapshot'),
         _restore = l.lookupFunction<_PathN, _PathD>('tama_restore'),
         cyclesPerSecond = l.lookupFunction<_U64N, _U64D>('tama_cycles_per_second')(),
+        _syncClock = l.lookupFunction<_ClockN, _ClockD>('tama_sync_clock'),
         _findKey = l.lookupFunction<_KeyN, _KeyD>('tama_find_key'),
         _keyProgress = l.lookupFunction<_U64N, _U64D>('tama_find_key_progress'),
         _keyStop = l.lookupFunction<_VoidN, _VoidD>('tama_find_key_stop');
@@ -87,6 +90,7 @@ class ParadiseCore {
   final _IntD _sleeping;
   final _PathD _snapshot, _restore;
   final int cyclesPerSecond;
+  final _ClockD _syncClock;
   final _KeyD _findKey;
   final _U64D _keyProgress;
   final _VoidD _keyStop;
@@ -137,6 +141,14 @@ class ParadiseHandle {
   void press(int pin) => core._press(_t, pin);
   void release(int pin) => core._release(_t, pin);
   double note() => core._note(_t);
+  /// Sets the game's clock to the phone's local time. Returns the settings pages set (0: none yet,
+  /// e.g. before the first setup).
+  int syncClock([DateTime? at]) {
+    final t = at ?? DateTime.now();
+    final local = t.millisecondsSinceEpoch ~/ 1000 + t.timeZoneOffset.inSeconds - 946684800; // 2000-01-01
+    return core._syncClock(_t, local);
+  }
+
   bool snapshot(String path) => _withPath(path, (c) => core._snapshot(_t, c)) == 0;
   bool restore(String path) => _withPath(path, (c) => core._restore(_t, c)) == 0;
 
