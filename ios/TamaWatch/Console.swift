@@ -270,18 +270,29 @@ final class WatchTone {
     lock.lock()
     freq = Double(hz)
     lock.unlock()
-    if hz > 20 && !started { begin() }
+    // started but not running (the route was not ready, an interruption): try again
+    if hz > 20 && (!started || !engine.isRunning) { begin() }
   }
 
   private func begin() {
     started = true
     // Every step can fail on the watch (no route, a format the hardware does not take): then the
     // game simply stays silent, it must never take the app down.
+    // .playback, not .ambient: ambient sound is muted by the watch's Silent Mode, and the toy's
+    // buzzer is the point (mixed with other audio, not stopping it).
     let session = AVAudioSession.sharedInstance()
     do {
-      try session.setCategory(.ambient, mode: .default)
+      try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
       try session.setActive(true)
     } catch {
+      return
+    }
+    if engine.isRunning { return }
+    if let n = node {
+      // a second try after a failed start: the source is already attached
+      engine.prepare()
+      try? engine.start()
+      _ = n
       return
     }
     let out = engine.mainMixerNode.outputFormat(forBus: 0)
@@ -292,7 +303,7 @@ final class WatchTone {
       self.lock.lock()
       let f = self.freq
       self.lock.unlock()
-      let target: Float = f > 20 ? 0.3 : 0
+      let target: Float = f > 20 ? 0.8 : 0
       let bufs = UnsafeMutableAudioBufferListPointer(abl)
       for i in 0..<Int(count) {
         self.level += (target - self.level) * 0.01
