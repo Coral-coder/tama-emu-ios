@@ -4,7 +4,7 @@ with the app's bridge (assets/studio/bridge.js) inlined first in <head>, so Web 
 downloads and tab jumps go through the app. Run again after updating Paramix."""
 import pathlib
 root = pathlib.Path(__file__).resolve().parent.parent
-html = (root / 'third_party/paramix-studio/dist/index.html').read_text(encoding='utf-8')
+html = (root / 'third_party/paramix-studio/dist/ParamixStudio.html').read_text(encoding='utf-8')
 bridge = (root / 'assets/studio/bridge.js').read_text(encoding='utf-8')
 tag = '<head>'
 i = html.find(tag)

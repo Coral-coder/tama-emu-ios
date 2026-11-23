@@ -215,6 +215,7 @@ jobs:
           tool/sync_paramix.sh
           rustup target add aarch64-apple-ios
           tool/build_native.sh ios
+          tool/build_studio.sh
           # the Apple Watch app runs the same core: built for watchOS too (left out if this fails)
           if tool/build_native.sh watchos; then touch ios/build_watch_lib; else echo "::warning::The core did not build for watchOS: no Apple Watch app in this build"; fi
           tool/roms.sh decrypt
