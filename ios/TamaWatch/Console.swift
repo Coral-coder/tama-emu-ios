@@ -191,8 +191,10 @@ final class Console: ObservableObject {
 
   /// One detent of the crown: a step of the wheel, played by the core in console time.
   func turn(_ right: Bool) {
-    guard let t = t else { return }
-    tama_turn(t, right ? 1 : 0)
+    DispatchQueue.main.async { [weak self] in
+      guard let t = self?.t else { return }
+      tama_turn(t, right ? 1 : 0)
+    }
   }
 }
 
@@ -215,12 +217,18 @@ final class WatchTone {
 
   private func begin() {
     started = true
+    // Every step can fail on the watch (no route, a format the hardware does not take): then the
+    // game simply stays silent, it must never take the app down.
+    let session = AVAudioSession.sharedInstance()
     do {
-      try AVAudioSession.sharedInstance().setCategory(.ambient)
-      try AVAudioSession.sharedInstance().setActive(true)
-    } catch {}
-    let rate = engine.outputNode.inputFormat(forBus: 0).sampleRate > 0 ? engine.outputNode.inputFormat(forBus: 0).sampleRate : 44100
-    let fmt = AVAudioFormat(standardFormatWithSampleRate: rate, channels: 1)!
+      try session.setCategory(.ambient, mode: .default)
+      try session.setActive(true)
+    } catch {
+      return
+    }
+    let out = engine.mainMixerNode.outputFormat(forBus: 0)
+    let rate = out.sampleRate > 8000 ? out.sampleRate : 44100
+    guard let fmt = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: rate, channels: 1, interleaved: false) else { return }
     let n = AVAudioSourceNode(format: fmt) { [weak self] _, _, count, abl -> OSStatus in
       guard let self = self else { return noErr }
       self.lock.lock()
@@ -235,13 +243,23 @@ final class WatchTone {
           if self.phase >= 1 { self.phase -= 1 }
         }
         let v: Float = (self.phase < 0.5 ? 1 : -1) * self.level * 0.5
-        for b in bufs { b.mData?.assumingMemoryBound(to: Float.self)[i] = v }
+        for b in bufs {
+          guard let p = b.mData else { continue }
+          let frames = Int(b.mDataByteSize) / MemoryLayout<Float>.size
+          if i < frames { p.assumingMemoryBound(to: Float.self)[i] = v }
+        }
       }
       return noErr
     }
     engine.attach(n)
     engine.connect(n, to: engine.mainMixerNode, format: fmt)
     node = n
-    try? engine.start()
+    engine.prepare()
+    do {
+      try engine.start()
+    } catch {
+      engine.detach(n)
+      node = nil
+    }
   }
 }

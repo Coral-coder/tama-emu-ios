@@ -36,8 +36,8 @@ struct GamesView: View {
 struct GameView: View {
   let game: WatchGame
   @ObservedObject var console = Console.shared
-  @State private var crown: Double = 0
-  @State private var lastCrown: Double = 0
+  @State private var crown: Double = 500
+  @State private var lastCrown: Double = 500
   @State private var showKeys = true
   @State private var showMenu = false
   @State private var note = ""
@@ -100,13 +100,16 @@ struct GameView: View {
     }
     .ignoresSafeArea()
     .focusable()
-    .digitalCrownRotation($crown, from: -1_000_000, through: 1_000_000, by: 1, sensitivity: .medium, isContinuous: true, isHapticFeedbackEnabled: true)
+    .digitalCrownRotation($crown, from: 0, through: 1000, by: 1, sensitivity: .medium, isContinuous: true, isHapticFeedbackEnabled: true)
     .onChange(of: crown) { v in
-      // one wheel step per crown detent
-      var d = (v - lastCrown).rounded()
-      lastCrown += d
-      while d >= 1 { console.turn(true); d -= 1 }
-      while d <= -1 { console.turn(false); d += 1 }
+      // one wheel step per crown detent (the value wraps around 0 / 1000)
+      var d = v - lastCrown
+      if d > 500 { d -= 1000 }
+      if d < -500 { d += 1000 }
+      let steps = Int(d.rounded())
+      guard steps != 0 else { return }
+      lastCrown = v
+      for _ in 0..<min(abs(steps), 8) { console.turn(steps > 0) }
     }
     .onAppear { console.play(game) }
     .onDisappear { console.stop() }
