@@ -25,6 +25,14 @@ as well as its own planets, built from the user's own dumps (nothing of any ROM 
   backgrounds, child list, teen/adult/egg/scene/planet tables) only the wagon table code is found
   byte for byte in Neon (fw 0x43734). Every other site has to be found in Neon's own code.
 
+## Mapping log
+
+- Field byte: Tropical/Glacier keep the active field at settings + 0x1EF (78 byte loads/stores in
+  the firmware). Neon has none at 0x1EF but 83 at settings + 0x203 = 0x1EF + 0x14 (its settings
+  block is 0x14 longer before that point): Neon's planet byte, used by code that mirrors the
+  gen3 field code. Next: pair Neon's 83 sites with Tropical's 78 (function by function, by the
+  surrounding code shape) to find the background, child list and per-field table loads.
+
 ## Plan
 
 1. Map Neon's planet switch: trace (examples/recomp_trace.rs, the recompiler's block map) what
