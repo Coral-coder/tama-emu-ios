@@ -95,6 +95,7 @@ final class Console: ObservableObject {
       start()
     } else {
       if awayAt == nil { awayAt = Date() }
+      releaseAll()
       pause()
       saveNow(send: true)
     }
@@ -167,6 +168,25 @@ final class Console: ObservableObject {
   func release(_ pin: UInt32) {
     guard let t = t else { return }
     tama_release(t, pin)
+  }
+
+  /// Feeds (1), plays (2), cures (4). False: no pet found.
+  func care(_ what: UInt32) -> Bool {
+    guard let t = t else { return false }
+    return tama_care(t, what) == 1
+  }
+
+  /// The reset button on the back of the toy (the save stays).
+  func reset() {
+    guard let t = t else { return }
+    saveNow(send: false)
+    tama_reset(t)
+    if tama_sync_clock(t, Console.localSeconds()) > 0 { tama_auto_date(t, 180) }
+  }
+
+  func releaseAll() {
+    guard let t = t else { return }
+    tama_release_all(t)
   }
 
   /// One detent of the crown: a step of the wheel, played by the core in console time.

@@ -194,6 +194,7 @@ class AppState extends ChangeNotifier {
   Future<void> onBackground() async {
     _bgAt = DateTime.now();
     paradise?.background = true;
+    paradise?.releaseAll();
     paradise?.save();
     if (paradise != null && !backgroundRun) paradise!.pause();
     final m = machine;

@@ -69,6 +69,7 @@ class ParadiseMachine extends ChangeNotifier {
   }
 
   void pause() {
+    releaseAll();
     _timer?.cancel();
     _timer = null;
     _tone(0);
@@ -142,6 +143,8 @@ class ParadiseMachine extends ChangeNotifier {
   }
 
   void press(int pin) => _h?.press(pin);
+  /// Nothing stays held (the app went to the background, a sheet opened over the keys).
+  void releaseAll() => _h?.releaseAll();
   void release(int pin) => _h?.release(pin);
 
   /// One step of the wheel: played by the core in console time, so no edge is lost between

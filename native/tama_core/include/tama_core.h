@@ -34,3 +34,7 @@ void tama_turn(Tama *t, int32_t right);
 /// Care kept up by itself every 10 s of game time: 1 feed, 2 play, 4 cure (0 off).
 void tama_auto_care(Tama *t, uint32_t what);
 int32_t tama_care(Tama *t, uint32_t what);
+/// The reset button: the core restarts on its save.
+void tama_reset(Tama *t);
+/// Lets go of every key and the dial.
+void tama_release_all(Tama *t);

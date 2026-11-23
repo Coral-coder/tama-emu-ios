@@ -133,12 +133,18 @@ class _ParadiseViewState extends State<ParadiseView> {
           IconButton(
             tooltip: 'Care',
             icon: const Icon(Icons.favorite_rounded),
-            onPressed: () => showCare(context, m, widget.rom.id),
+            onPressed: () {
+              m.releaseAll();
+              showCare(context, m, widget.rom.id);
+            },
           ),
           IconButton(
             tooltip: 'Type a name',
             icon: const Icon(Icons.keyboard_rounded),
-            onPressed: m.typing ? null : () => _type(context),
+            onPressed: m.typing ? null : () {
+              m.releaseAll();
+              _type(context);
+            },
           ),
           IconButton(
             tooltip: 'Sound',
@@ -147,6 +153,7 @@ class _ParadiseViewState extends State<ParadiseView> {
           ),
           PopupMenuButton<String>(
             onSelected: (v) async {
+              m.releaseAll();
               switch (v) {
                 case 'pause':
                   m.running ? m.pause() : m.start();
@@ -319,6 +326,12 @@ class _DialState extends State<Dial> {
     );
   }
 
+  @override
+  void dispose() {
+    if (_pressed) widget.onPress(false);
+    super.dispose();
+  }
+
   void _end() {
     _last = null;
     _acc = 0;
@@ -381,6 +394,13 @@ class _HoldKey extends StatefulWidget {
 
 class _HoldKeyState extends State<_HoldKey> {
   bool _down = false;
+
+  @override
+  void dispose() {
+    if (_down) widget.onUp(); // never leave a key held when the button goes away mid-press
+    super.dispose();
+  }
+
   void _set(bool d) {
     if (d == _down) return;
     setState(() => _down = d);

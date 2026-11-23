@@ -35,6 +35,7 @@ pub struct Tama {
     auto_jusqu: u64,
     auto_prochain: u64,
     auto_relache: u64,
+    auto_n: u32,
     drapeau: u32,               // address of the sound flag (0: not looked up yet)
     veille_depuis: Option<u64>, // since when the core sits parked, powered off
     redemarrages: u32,
@@ -70,6 +71,7 @@ pub extern "C" fn tama_new() -> *mut Tama {
         auto_jusqu: 0,
         auto_prochain: 0,
         auto_relache: 0,
+        auto_n: 0,
         drapeau: 0,
         veille_depuis: None,
         boucle: (0, 0, 0, 0),
@@ -397,11 +399,25 @@ impl Tama {
     }
 
     /// The "set current date / time" notice, or the form under it (year, month, ... with + OK <-).
-    fn ecran_de_date(&self) -> bool {
+    /// 1: the notice, 2: the date form, 0: anything else.
+    fn ecran_de_date(&self) -> u8 {
         let blanc = (255, 255, 255);
-        let avis = self.proche(2, 2, (0, 182, 255)) && self.proche(64, 64, blanc) && self.proche(64, 8, blanc) && self.proche(64, 100, blanc);
-        let formulaire = self.proche(2, 2, (0, 52, 139)) && self.proche(5, 124, (0, 0, 98)) && self.proche(64, 124, (222, 0, 197)) && self.proche(64, 100, (0, 0, 98));
-        avis || formulaire
+        let cyan = (0, 182, 255);
+        let avis = self.proche(2, 2, cyan) && self.proche(2, 64, cyan) && self.proche(125, 125, cyan) && self.proche(64, 64, blanc)
+            && self.proche(64, 8, blanc) && self.proche(64, 100, blanc) && self.proche(20, 64, blanc);
+        let marine = (0, 0, 98);
+        let formulaire = self.proche(2, 2, (0, 52, 139)) && self.proche(124, 4, (0, 52, 139)) && self.proche(5, 124, marine)
+            && self.proche(64, 100, marine) && self.proche(64, 124, (222, 0, 197)) && self.proche(64, 115, (255, 129, 230))
+            // not the birthday form (month and day only: dark blue where the date form has its rows)
+            && !self.proche(64, 70, marine) && !self.proche(30, 88, (0, 170, 255));
+        if formulaire {
+            return 2;
+        }
+        if avis {
+            1
+        } else {
+            0
+        }
     }
 
     /// While the date screens of a new start show, presses OK (B) every 1.5 s: the firmware fills
@@ -415,8 +431,21 @@ impl Tama {
         if now >= self.auto_jusqu || now < self.auto_prochain || self.auto_relache != 0 {
             return;
         }
-        if self.ecran_de_date() {
+        let e = self.ecran_de_date();
+        if e == 2 {
+            self.auto_n |= 1 << 8; // the form was seen
+        }
+        if e == 1 && self.auto_n & (1 << 8) != 0 {
+            self.auto_jusqu = 0; // a notice after the date form (the birthday): that one is the player's
+            return;
+        }
+        if e != 0 {
             let cps = CYCLES_PAR_SECONDE as u64;
+            self.auto_n += 1;
+            if self.auto_n & 0xFF > 20 {
+                self.auto_jusqu = 0;
+                return;
+            }
             self.m.appuyer(0x0B);
             self.auto_relache = now + cps / 8;
             self.auto_prochain = now + cps * 3 / 2;
@@ -713,6 +742,7 @@ pub unsafe extern "C" fn tama_auto_date(t: *mut Tama, seconds: u32) {
     let t = &mut *t;
     t.auto_jusqu = t.m.cpu.cycles + seconds as u64 * CYCLES_PAR_SECONDE as u64;
     t.auto_prochain = 0;
+    t.auto_n = 0;
 }
 
 /// (kept for experiments) A save-less start made to look like a wake from deep sleep.
@@ -823,4 +853,16 @@ pub unsafe extern "C" fn tama_block(t: *mut Tama, out: *mut u8) -> i32 {
     let Some((b, _)) = t.trouver_bloc() else { return 0 };
     std::ptr::copy_nonoverlapping(t.m.bus.sram.data[b..].as_ptr(), out, 0x1000);
     1
+}
+
+/// Lets go of every key and the dial (nothing stays held when the app looks away).
+#[no_mangle]
+pub unsafe extern "C" fn tama_release_all(t: *mut Tama) {
+    let t = &mut *t;
+    for p in [0x08, 0x09, 0x0A, 0x0B, 0x20, 0x21] {
+        t.m.relacher(p);
+    }
+    t.tours.clear();
+    t.phase = 0;
+    t.auto_relache = 0;
 }

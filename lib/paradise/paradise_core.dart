@@ -73,6 +73,7 @@ class ParadiseCore {
         _wake = l.lookupFunction<_IntN, _IntD>('tama_wake'),
         _turn = l.lookupFunction<_PinN, _PinD>('tama_turn'),
         _reset = l.lookupFunction<_FreeN, _FreeD>('tama_reset'),
+        _releaseAll = l.lookupFunction<_FreeN, _FreeD>('tama_release_all'),
         _pet = l.lookupFunction<_PetN, _PetD>('tama_pet'),
         _care = l.lookupFunction<_ClockCareN, _ClockCareD>('tama_care'),
         _autoCare = l.lookupFunction<_PinN, _PinD>('tama_auto_care'),
@@ -115,6 +116,7 @@ class ParadiseCore {
   final _IntD _wake;
   final _PinD _turn;
   final _FreeD _reset;
+  final _FreeD _releaseAll;
   final _PetD _pet;
   final _ClockCareD _care;
   final _PinD _autoCare;
@@ -172,6 +174,9 @@ class ParadiseHandle {
   double note() => core._note(_t);
   /// Sounds the console started so far.
   int get sounds => core._sounds(_t);
+  /// Lets go of every key and the dial.
+  void releaseAll() => core._releaseAll(_t);
+
   /// The reset button on the back: the console restarts (its save stays).
   void reset() => core._reset(_t);
 

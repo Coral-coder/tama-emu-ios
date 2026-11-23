@@ -39,6 +39,8 @@ struct GameView: View {
   @State private var crown: Double = 0
   @State private var lastCrown: Double = 0
   @State private var showKeys = true
+  @State private var showMenu = false
+  @State private var note = ""
 
   var body: some View {
     GeometryReader { geo in
@@ -55,7 +57,35 @@ struct GameView: View {
         } else {
           ProgressView()
         }
-        if showKeys {
+        VStack {
+          HStack {
+            Spacer()
+            Button { Console.shared.releaseAll(); showMenu = true } label: {
+              Image(systemName: "ellipsis").font(.system(size: 13, weight: .bold)).frame(width: 30, height: 22)
+                .background(Capsule().fill(Color.white.opacity(0.22)))
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 4).padding(.trailing, 6)
+          }
+          Spacer()
+        }
+        if showMenu {
+          ScrollView {
+            VStack(spacing: 6) {
+              MenuRow(title: "Feed") { note = console.care(1) ? "Fed" : "No pet yet" }
+              MenuRow(title: "Play") { note = console.care(2) ? "Happy" : "No pet yet" }
+              MenuRow(title: "Cure") { note = console.care(4) ? "Cured" : "No pet yet" }
+              MenuRow(title: "Reset button") { console.reset(); showMenu = false }
+              MenuRow(title: showKeys ? "Hide buttons" : "Show buttons") { showKeys.toggle(); showMenu = false }
+              MenuRow(title: "Back to the game") { showMenu = false }
+              if !note.isEmpty { Text(note).font(.footnote).foregroundStyle(.secondary) }
+            }
+            .padding(8)
+          }
+          .background(Color.black.opacity(0.85))
+          .zIndex(2)
+        }
+        if showKeys && !showMenu {
           HStack(spacing: 6) {
             GhostKey(label: "A", pin: Console.pinA)
             GhostKey(label: "B", pin: Console.pinB)
@@ -110,5 +140,22 @@ struct GhostKey: View {
             Console.shared.release(pin)
           }
       )
+      .onDisappear {
+        if down { Console.shared.release(pin); down = false }
+      }
+  }
+}
+
+/// A row of the in-game menu.
+struct MenuRow: View {
+  let title: String
+  let action: () -> Void
+
+  var body: some View {
+    Button(action: action) {
+      Text(title).font(.system(size: 14, weight: .semibold)).frame(maxWidth: .infinity).padding(.vertical, 7)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.18)))
+    }
+    .buttonStyle(.plain)
   }
 }
