@@ -3,7 +3,7 @@ import 'package:material_ui/material_ui.dart';
 import '../services/app_state.dart';
 import '../services/watch.dart';
 import 'about_screen.dart';
-import 'device_screen.dart';
+import 'paramix_menu.dart';
 import 'dongle_screen.dart';
 import 'hardware_screen.dart';
 import 'library_screen.dart';
@@ -19,7 +19,7 @@ class ToolsScreen extends StatelessWidget {
     final tiles = <_Tile>[
       _Tile('Theme', 'Shell, buttons, dial', Icons.palette_rounded, const Color(0xFFFF4F9A), () => const ThemeScreen(), wide: true),
       _Tile('ROMs', 'Your games', Icons.auto_awesome_rounded, const Color(0xFF7B5CFF), () => const LibraryScreen()),
-      _Tile('Paramix', 'Device: read, write', Icons.usb_rounded, const Color(0xFF2F6BFF), () => const DeviceScreen()),
+      _Tile('Paramix', 'Every tool: fields, emulators, menu', Icons.usb_rounded, const Color(0xFF2F6BFF), () => const ParamixMenu()),
       _Tile('Link', 'Toys and phones', Icons.hub_rounded, const Color(0xFF2EC4B6), () => const LinkScreen()),
       _Tile('Dongle', 'Your Tama Bridge', Icons.settings_input_antenna_rounded, const Color(0xFFFF5A5A), () => const DongleScreen()),
       _Tile('Hardware', 'Serial, Bluetooth, Wi-Fi', Icons.cable_rounded, const Color(0xFFFF9F43), () => const HardwareScreen()),
