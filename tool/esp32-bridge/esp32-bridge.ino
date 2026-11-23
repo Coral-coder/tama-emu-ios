@@ -19,7 +19,7 @@
 #include <ESPmDNS.h>
 #include <Preferences.h>
 #include <WiFi.h>
-#ifdef HAS_SCREEN
+#if defined(BOARD_HELTEC_V3) || defined(BOARD_HELTEC_V4)
 #include <SSD1306Wire.h>
 #include <Wire.h>
 #endif
