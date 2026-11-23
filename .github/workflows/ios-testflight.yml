@@ -432,7 +432,7 @@ jobs:
             cp build/xcodebuild.log build/xcodebuild-watch.log
             git checkout -- Runner.xcodeproj
             rm -f build_watch_added build_driverkit_added
-            echo "### Apple Watch app left out of this build (see the warnings)" >> "$GITHUB_STEP_SUMMARY"
+            { echo "### Apple Watch app left out of this build"; grep -E ': error: ' build/xcodebuild.log | sort -u | head -10 | sed -E "s#^$GITHUB_WORKSPACE/##; s#^#    #"; } >> "$GITHUB_STEP_SUMMARY"
             if archive; then ok=true; fi
           fi
           if [ "$ok" != true ]; then

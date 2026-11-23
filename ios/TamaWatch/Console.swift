@@ -48,8 +48,6 @@ final class Console: ObservableObject {
     self.t = t
     playing = g.id
     error = nil
-    // keeps the game in front for a while after the wrist goes down
-    WKApplication.shared().isFrontmostTimeoutExtended = true
     start()
   }
 
