@@ -46,6 +46,7 @@ dependencies:
   typed_data: ^1.4.0
   crypto: ^3.0.8
   image: ^4.13.1
+  archive: ^4.0.0
   ffi: ^2.2.0
 
 dev_dependencies:

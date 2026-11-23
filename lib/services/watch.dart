@@ -64,6 +64,16 @@ class WatchLink {
     if (running) await app.playParadise(e.first, focus: focused);
   }
 
+  /// The pet is calling: the watch pops up a notification with sound and a tap on the wrist.
+  Future<void> call(String name) async {
+    if (!available) return;
+    try {
+      await _ch.invokeMethod('call', {'name': name});
+    } catch (e) {
+      debugPrint('watch call: $e');
+    }
+  }
+
   /// Sends every game you play (its latest save, and the ROM the first time) to the watch, so
   /// opening Tama there simply continues. Called when the app goes to the background.
   Future<String?> syncAll() async {

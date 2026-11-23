@@ -34,8 +34,8 @@ class TamaApp extends StatelessWidget {
       builder: (context, _) => MaterialApp(
         title: 'Tama',
         debugShowCheckedModeBanner: false,
-        theme: buildTheme(app.shellTheme),
-        darkTheme: buildTheme(app.shellTheme),
+        theme: buildTheme(app.currentTheme),
+        darkTheme: buildTheme(app.currentTheme),
         themeMode: ThemeMode.dark,
         home: const Shell(),
       ),

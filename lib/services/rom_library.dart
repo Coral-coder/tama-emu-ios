@@ -11,6 +11,9 @@ import 'package:image/image.dart' as img;
 import '../emu/rom_info.dart';
 import '../paramix/sprites.dart';
 
+/// A game's name as shown: just the ROM's own name ("Neon Planets", not "Tamagotchi Paradise · …").
+String shortName(String n) => n.replaceFirst(RegExp(r'^Tamagotchi Paradise\s*[·:\-–]\s*', caseSensitive: false), '').trim();
+
 /// One ROM in the library: built into the app (assets/roms) or imported by the user.
 class RomEntry {
   RomEntry({
@@ -73,7 +76,7 @@ class RomLibrary extends ChangeNotifier {
         final m = e as Map<String, dynamic>;
         entries.add(RomEntry(
           id: m['id'] as String,
-          name: m['name'] as String,
+          name: shortName(m['name'] as String),
           kind: RomKind.values.byName(m['kind'] as String),
           size: m['size'] as int,
           asset: 'assets/roms/${m['file']}',
@@ -94,7 +97,7 @@ class RomLibrary extends ChangeNotifier {
         if (entries.any((e) => e.id == m['id'])) continue;
         entries.add(RomEntry(
           id: m['id'] as String,
-          name: m['name'] as String,
+          name: shortName(m['name'] as String),
           kind: RomKind.values.byName(m['kind'] as String),
           size: m['size'] as int,
           file: bin,
@@ -131,7 +134,7 @@ class RomLibrary extends ChangeNotifier {
     final id = fnv1a(b).toRadixString(16).padLeft(8, '0') + b.length.toRadixString(16);
     final have = entries.where((e) => e.id == id);
     if (have.isNotEmpty) return have.first;
-    var name = fileName.replaceAll(RegExp(r'\.(bin|BIN|rom|ROM)$'), '').replaceAll('_', ' ');
+    var name = shortName(fileName.replaceAll(RegExp(r'\.(bin|BIN|rom|ROM)$'), '').replaceAll('_', ' ').replaceFirst(RegExp(r'^Tamagotchi[ _]Paradise[ _]', caseSensitive: false), ''));
     if (kind == RomKind.e0c6s4x) {
       final p = ToyProfile(b);
       if (!p.name.startsWith('TAMA 4')) name = p.displayName;

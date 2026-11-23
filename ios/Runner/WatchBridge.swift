@@ -54,6 +54,17 @@ final class WatchBridge: NSObject, WCSessionDelegate {
         WCSession.default.transferFile(tmp, metadata: meta)
       }
       result(nil)
+    case "call":
+      // the pet calls: a live message when the watch app is reachable, else queued user info
+      // (delivered when the watch can take it); the watch pops a notification with sound
+      guard WCSession.isSupported(), WCSession.default.activationState == .activated, WCSession.default.isWatchAppInstalled else { return result(nil) }
+      let info: [String: Any] = ["call": args["name"] as? String ?? "Tama", "at": Date().timeIntervalSince1970]
+      if WCSession.default.isReachable {
+        WCSession.default.sendMessage(info, replyHandler: nil) { _ in WCSession.default.transferUserInfo(info) }
+      } else {
+        WCSession.default.transferUserInfo(info)
+      }
+      result(nil)
     case "pending":
       // saves that came from the watch while the app was not listening
       let p = pending

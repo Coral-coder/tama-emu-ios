@@ -1,6 +1,8 @@
 import 'dart:io';
 
+import 'package:archive/archive.dart';
 import 'package:file_picker/file_picker.dart';
+import 'dart:typed_data';
 import 'package:material_ui/material_ui.dart';
 
 import '../emu/rom_info.dart';
@@ -21,7 +23,17 @@ class GamesScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Tama'),
-        actions: [IconButton(tooltip: 'Import a ROM', icon: const Icon(Icons.add_circle_outline), onPressed: () => importRoms(context))],
+        actions: [
+          PopupMenuButton<String>(
+            tooltip: 'Add games',
+            icon: const Icon(Icons.add_circle_outline),
+            onSelected: (v) => v == 'link' ? importFromLink(context) : importRoms(context),
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'files', child: ListTile(leading: Icon(Icons.folder_open), title: Text('From Files'))),
+              PopupMenuItem(value: 'link', child: ListTile(leading: Icon(Icons.link), title: Text('From a link'))),
+            ],
+          ),
+        ],
       ),
       body: ListenableBuilder(
         listenable: Listenable.merge([lib, AppState.instance]),
@@ -40,9 +52,18 @@ class GamesScreen extends StatelessWidget {
               ),
             );
           }
+          // up to nine: three across, the picture with its name under it; more: a list
+          if (games.length > 9) {
+            return ListView.separated(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              itemCount: games.length,
+              separatorBuilder: (_, _) => const Divider(height: 1, indent: 88),
+              itemBuilder: (context, i) => _GameRow(entry: games[i]),
+            );
+          }
           return GridView.builder(
             padding: const EdgeInsets.all(12),
-            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(maxCrossAxisExtent: 220, mainAxisSpacing: 12, crossAxisSpacing: 12, childAspectRatio: 0.78),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, mainAxisSpacing: 14, crossAxisSpacing: 10, childAspectRatio: 0.78),
             itemCount: games.length,
             itemBuilder: (context, i) => _GameCard(entry: games[i]),
           );
@@ -98,6 +119,92 @@ Future<void> importRoms(BuildContext context) async {
   }
 }
 
+/// Downloads ROMs from a link (a direct file link, such as an archive.org "download" link): a
+/// .bin dump, a gzip, or a zip with dumps inside. Each one found goes into the library.
+Future<void> importFromLink(BuildContext context) async {
+  final ctl = TextEditingController();
+  final url = await showDialog<String>(
+    context: context,
+    builder: (c) => AlertDialog(
+      title: const Text('Add games from a link'),
+      content: Column(mainAxisSize: MainAxisSize.min, children: [
+        const Text('Paste the link to the file itself (a .bin, .gz or .zip). On archive.org: the file under DOWNLOAD OPTIONS, then Copy Link.',
+            style: TextStyle(color: Colors.white60, fontSize: 13)),
+        const SizedBox(height: 10),
+        TextField(controller: ctl, autofocus: true, keyboardType: TextInputType.url, decoration: const InputDecoration(hintText: 'https://…')),
+      ]),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(c), child: const Text('Cancel')),
+        FilledButton(onPressed: () => Navigator.pop(c, ctl.text.trim()), child: const Text('Download')),
+      ],
+    ),
+  );
+  if (url == null || url.isEmpty || !context.mounted) return;
+  final uri = Uri.tryParse(url);
+  if (uri == null || !uri.hasScheme) {
+    await _importError(context, 'That is not a link: $url');
+    return;
+  }
+  final status = ValueNotifier<String>('Connecting …');
+  showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (c) => AlertDialog(
+      content: Row(children: [
+        const CircularProgressIndicator(),
+        const SizedBox(width: 16),
+        Expanded(child: ValueListenableBuilder<String>(valueListenable: status, builder: (_, v, _) => Text(v))),
+      ]),
+    ),
+  );
+  final added = <String>[];
+  String? error;
+  try {
+    final client = HttpClient()..userAgent = 'Tama';
+    final req = await client.getUrl(uri);
+    final res = await req.close();
+    if (res.statusCode != 200) throw 'the server answered ${res.statusCode}';
+    final total = res.contentLength;
+    final bytes = BytesBuilder(copy: false);
+    await for (final chunk in res) {
+      bytes.add(chunk);
+      status.value = total > 0
+          ? 'Downloading … ${(bytes.length * 100 / total).toStringAsFixed(0)} % of ${(total / 1048576).toStringAsFixed(1)} MB'
+          : 'Downloading … ${(bytes.length / 1048576).toStringAsFixed(1)} MB';
+    }
+    client.close();
+    final data = bytes.takeBytes();
+    final name = Uri.decodeComponent(uri.pathSegments.isEmpty ? 'download.bin' : uri.pathSegments.last);
+    status.value = 'Adding …';
+    final files = <(String, Uint8List)>[];
+    if (data.length > 4 && data[0] == 0x50 && data[1] == 0x4B) {
+      for (final f in ZipDecoder().decodeBytes(data)) {
+        if (f.isFile && f.size > 0) files.add((f.name.split('/').last, f.content));
+      }
+    } else if (data.length > 2 && data[0] == 0x1F && data[1] == 0x8B) {
+      files.add((name.replaceFirst(RegExp(r'\.gz$'), ''), Uint8List.fromList(gzip.decode(data))));
+    } else {
+      files.add((name, data));
+    }
+    for (final (n, b) in files) {
+      final ok = b.length == 16 * 1024 * 1024 || b.length == 12 * 1024 || b.length == 16 * 1024 || b.length == 8 * 1024;
+      if (!ok) continue; // not a dump (a readme, a picture …)
+      final e = await AppState.instance.library.import(b, n);
+      added.add(e.name);
+    }
+    if (added.isEmpty) error = 'No ROM in what was downloaded (a Paradise dump is 16 MB; a first toy ROM 12 or 16 KB).';
+  } catch (e) {
+    error = 'The download failed: $e';
+  }
+  if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
+  if (!context.mounted) return;
+  if (error != null) {
+    await _importError(context, error);
+  } else {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Added: ${added.join(', ')}')));
+  }
+}
+
 Future<void> _importError(BuildContext context, String text) => showDialog<void>(
       context: context,
       builder: (c) => AlertDialog(
@@ -136,16 +243,34 @@ class _GameCard extends StatelessWidget {
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Expanded(child: _Picture(entry: e, short: short)),
           Padding(
-            padding: const EdgeInsets.fromLTRB(10, 8, 10, 2),
-            child: Text(short, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
-            child: Text(e.kind == RomKind.paradise ? 'Tamagotchi Paradise' : 'First-generation toy',
-                style: const TextStyle(fontSize: 11, color: Colors.white54)),
+            padding: const EdgeInsets.fromLTRB(6, 6, 6, 8),
+            child: Text(short, maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
           ),
         ]),
       ),
+    );
+  }
+}
+
+/// A game in the list (more than nine): its picture, name and state.
+class _GameRow extends StatelessWidget {
+  const _GameRow({required this.entry});
+  final RomEntry entry;
+
+  @override
+  Widget build(BuildContext context) {
+    final e = entry;
+    final living = AppState.instance.games.containsKey(e.id);
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      leading: ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: SizedBox(width: 64, height: 64, child: _Picture(entry: e, short: e.name)),
+      ),
+      title: Text(e.name, style: const TextStyle(fontWeight: FontWeight.w700)),
+      subtitle: Text(living ? 'Living' : (e.kind == RomKind.paradise ? 'Paradise' : 'First-generation toy')),
+      onTap: () => startGame(context, e),
+      onLongPress: e.kind == RomKind.paradise ? () => showGameMenu(context, e) : null,
     );
   }
 }

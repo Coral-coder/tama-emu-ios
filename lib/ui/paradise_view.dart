@@ -15,6 +15,7 @@ import 'hardware_screen.dart';
 import 'paradise_screen.dart';
 import 'screen_filters.dart';
 import 'shell_theme.dart';
+import 'theme_screen.dart';
 import 'theme.dart';
 
 /// The Tamagotchi Paradise, played: its colour screen, A / B / C and the dial.
@@ -181,7 +182,7 @@ class _ParadiseViewState extends State<ParadiseView> {
   @override
   Widget build(BuildContext context) {
     final app = AppState.instance;
-    final th = app.shellTheme;
+    final th = app.currentTheme;
     return Scaffold(
       backgroundColor: th.lower,
       extendBodyBehindAppBar: false,
@@ -219,6 +220,8 @@ class _ParadiseViewState extends State<ParadiseView> {
               switch (v) {
                 case 'pause':
                   m.running ? m.pause() : m.start();
+                case 'theme':
+                  if (context.mounted) await Navigator.of(context).push(MaterialPageRoute(builder: (_) => ThemeScreen(gameId: widget.rom.id, gameName: widget.rom.name)));
                 case 'look':
                   if (context.mounted) await pickScreenLook(context);
                   _shown = -1;
@@ -271,6 +274,7 @@ class _ParadiseViewState extends State<ParadiseView> {
             },
             itemBuilder: (_) => [
               PopupMenuItem(value: 'pause', child: Text(m.running ? 'Pause' : 'Run')),
+              const PopupMenuItem(value: 'theme', child: Text('This game\'s colours …')),
               const PopupMenuItem(value: 'look', child: Text('Upscaler & filter …')),
               const PopupMenuItem(value: 'reset', child: Text('Reset button')),
               if (app.link == null) const PopupMenuItem(value: 'twin', child: Text('Link with another game …')),
@@ -475,7 +479,7 @@ class _DialPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    paintDial(canvas, size.center(Offset.zero), size.width / 2, AppState.instance.shellTheme, angle, pressed: pressed);
+    paintDial(canvas, size.center(Offset.zero), size.width / 2, AppState.instance.currentTheme, angle, pressed: pressed);
   }
 
   @override
@@ -510,7 +514,7 @@ class _HoldKeyState extends State<_HoldKey> {
   @override
   Widget build(BuildContext context) {
     final sz = widget.size;
-    final th = AppState.instance.shellTheme;
+    final th = AppState.instance.currentTheme;
     return Listener(
       onPointerDown: (_) => _set(true),
       onPointerUp: (_) => _set(false),

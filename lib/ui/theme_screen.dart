@@ -6,18 +6,22 @@ import 'shell_theme.dart';
 /// Colour the app like a toy: presets, or the shell (split halfway if you like), the buttons and
 /// the dial (up to four colours in a pattern), with a live preview.
 class ThemeScreen extends StatefulWidget {
-  const ThemeScreen({super.key});
+  const ThemeScreen({super.key, this.gameId, this.gameName});
+  /// Set: this game's own colours; not set: the app's default.
+  final String? gameId;
+  final String? gameName;
 
   @override
   State<ThemeScreen> createState() => _ThemeScreenState();
 }
 
 class _ThemeScreenState extends State<ThemeScreen> {
-  late ShellTheme t = AppState.instance.shellTheme;
+  late ShellTheme t = AppState.instance.themeOf(widget.gameId);
 
   void _set(ShellTheme n) {
     setState(() => t = n);
-    AppState.instance.setShellTheme(n);
+    final id = widget.gameId;
+    id == null ? AppState.instance.setShellTheme(n) : AppState.instance.setGameTheme(id, n);
   }
 
   Future<Color?> _pick(Color current) => showModalBottomSheet<Color>(
@@ -61,7 +65,19 @@ class _ThemeScreenState extends State<ThemeScreen> {
   Widget build(BuildContext context) {
     final title = Theme.of(context).textTheme.titleMedium;
     return Scaffold(
-      appBar: AppBar(title: const Text('Theme')),
+      appBar: AppBar(title: Text(widget.gameName == null ? 'Theme' : 'Colours · ${widget.gameName}'), actions: [
+        if (widget.gameId != null)
+          TextButton(
+            onPressed: () async {
+              final app = AppState.instance;
+              final e = app.library.entries.where((x) => x.id == widget.gameId);
+              if (e.isEmpty) return;
+              await app.ensureGameTheme(e.first, fresh: true);
+              setState(() => t = app.themeOf(widget.gameId));
+            },
+            child: const Text('Game\'s own'),
+          ),
+      ]),
       body: ListView(padding: const EdgeInsets.all(16), children: [
         Row(mainAxisAlignment: MainAxisAlignment.center, children: [
           SizedBox(width: 200, height: 250, child: ShellPreview(theme: t)),

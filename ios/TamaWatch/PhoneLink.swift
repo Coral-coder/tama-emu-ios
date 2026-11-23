@@ -1,5 +1,7 @@
 import Foundation
+import UserNotifications
 import WatchConnectivity
+import WatchKit
 
 /// The link with the phone: games and saves come in, saves go back.
 final class PhoneLink: NSObject, WCSessionDelegate {
@@ -9,6 +11,7 @@ final class PhoneLink: NSObject, WCSessionDelegate {
     guard WCSession.isSupported() else { return }
     WCSession.default.delegate = self
     WCSession.default.activate()
+    UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
   }
 
   func sendSave(_ g: WatchGame) {
@@ -33,5 +36,24 @@ final class PhoneLink: NSObject, WCSessionDelegate {
     WatchLibrary.shared.receive(file: file.fileURL, meta: file.metadata ?? [:])
   }
 
-  func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {}
+  func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
+    calling(message)
+  }
+
+  func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
+    calling(userInfo)
+  }
+
+  /// The pet calls (sent by the phone): a notification with sound, and a tap on the wrist.
+  private func calling(_ info: [String: Any]) {
+    guard let name = info["call"] as? String else { return }
+    // an old call delivered late is not worth a buzz
+    if let at = info["at"] as? Double, Date().timeIntervalSince1970 - at > 600 { return }
+    DispatchQueue.main.async { WKInterfaceDevice.current().play(.notification) }
+    let c = UNMutableNotificationContent()
+    c.title = name
+    c.body = "Your Tamagotchi is calling you."
+    c.sound = .default
+    UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "call-\(Date().timeIntervalSince1970)", content: c, trigger: nil))
+  }
 }

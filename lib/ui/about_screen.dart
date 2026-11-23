@@ -25,6 +25,15 @@ class AboutScreen extends StatelessWidget {
             },
           ),
           SwitchListTile(
+            title: const Text('Call me on my watch'),
+            subtitle: const Text('When your Tamagotchi needs you, the watch pops up and makes a sound too, not only the phone.'),
+            value: app.watchCalls,
+            onChanged: (v) async {
+              app.watchCalls = v;
+              await app.setPref('watchCalls', v);
+            },
+          ),
+          SwitchListTile(
             title: const Text('Keep the screen on'),
             subtitle: const Text('Off: the console goes to sleep when left alone, like the toy (a key or the dial wakes it), and the phone locks as usual. Far less battery.'),
             value: app.keepScreenOn,

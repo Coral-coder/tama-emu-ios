@@ -71,9 +71,46 @@ class AppState extends ChangeNotifier {
   /// Keeps the console (and the phone's screen) awake while a game is shown. Off: it sleeps like
   /// the toy, and spends far less battery.
   bool keepScreenOn = false;
+  /// When the pet calls, the watch pops up and sounds too (not only the phone).
+  bool watchCalls = true;
 
-  /// The app coloured like a toy (shell, buttons, dial).
+  /// The app coloured like a toy (shell, buttons, dial): this is the default; each Paradise game
+  /// has its own, first taken from its artwork, then as you change it.
   ShellTheme shellTheme = ShellTheme.presets.first;
+  final Map<String, ShellTheme> _gameThemes = {};
+  ShellTheme themeOf(String? id) => (id == null ? null : _gameThemes[id]) ?? shellTheme;
+  ShellTheme get currentTheme => themeOf(focused);
+
+  Future<void> setGameTheme(String id, ShellTheme t) async {
+    _gameThemes[id] = t;
+    await prefs.setString('theme_$id', t.encode());
+    notifyListeners();
+  }
+
+  /// The game's theme: the one saved for it, or one made from its artwork.
+  Future<void> ensureGameTheme(RomEntry e, {bool fresh = false}) async {
+    if (e.kind != RomKind.paradise) return;
+    final saved = fresh ? null : ShellTheme.decode(prefs.getString('theme_${e.id}'));
+    if (saved != null) {
+      _gameThemes[e.id] = saved;
+      return;
+    }
+    final ed = editionTheme(e.name);
+    if (ed != null) {
+      await setGameTheme(e.id, ed);
+      return;
+    }
+    try {
+      final cover = await library.cover(e);
+      if (cover == null) return;
+      final im = img.decodePng(await cover.readAsBytes());
+      if (im == null) return;
+      final t = themeFromPixels(e.name, im.convert(numChannels: 4).toUint8List());
+      await setGameTheme(e.id, t);
+    } catch (err) {
+      debugPrint('theme ${e.name}: $err');
+    }
+  }
   Future<void> setShellTheme(ShellTheme t) async {
     shellTheme = t;
     await prefs.setString('shellTheme', t.encode());
@@ -103,6 +140,7 @@ class AppState extends ChangeNotifier {
     sound = prefs.getBool('sound') ?? true;
     backgroundRun = prefs.getBool('backgroundRun') ?? true;
     keepScreenOn = prefs.getBool('keepScreenOn') ?? false;
+    watchCalls = prefs.getBool('watchCalls') ?? true;
     shellTheme = ShellTheme.decode(prefs.getString('shellTheme')) ?? ShellTheme.presets.first;
     ghostDots = prefs.getBool('ghostDots') ?? true;
     upscale = Upscale.values.asNameMap()[prefs.getString('upscale')] ?? Upscale.scale2x;
@@ -159,6 +197,7 @@ class AppState extends ChangeNotifier {
     final core = ParadiseCore.instance;
     if (core == null) return 'The Paradise core is not in this build (${ParadiseCore.loadError}).';
     if (focus) await stopToy();
+    await ensureGameTheme(e);
     final running = games[e.id];
     if (running != null) {
       if (focus) _focus(e.id);
@@ -169,7 +208,11 @@ class AppState extends ChangeNotifier {
       ..sound = sound
       ..keepScreenOn = keepScreenOn
       ..autoCareBits = autoCare(e)
-      ..onCall = (t) => NativeBridge.notify(t.replaceFirst('Tamagotchi Paradise · ', ''), 'Your Tamagotchi is calling you.');
+      ..onCall = (t) {
+        final name = t.replaceFirst('Tamagotchi Paradise · ', '');
+        NativeBridge.notify(name, 'Your Tamagotchi is calling you.');
+        if (watchCalls) WatchLink.instance.call(name);
+      };
     unawaited(NativeBridge.askToNotify());
     final r = m.boot(key ?? paradiseKey(e));
     if (r != 1) {
