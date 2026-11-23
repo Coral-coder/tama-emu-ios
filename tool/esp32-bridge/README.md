@@ -6,6 +6,9 @@ USB serial adapters), over **Bluetooth LE** or **Wi-Fi**, and between two real t
 
 ## Getting the firmware on the board
 
+**In the browser (any computer, Chrome or Edge):** https://coral-coder.github.io/tama-emu-ios/ —
+plug the board in, press Install, pick its port.
+
 **Windows (easiest):** Releases page of this repository → the newest `esp32-bridge-…` →
 download `Tama-Bridge-Windows-flasher.zip`, unzip it, plug the ESP32 in with USB and
 double-click **flash.bat**. It finds the board, recognises its chip and writes the right firmware.

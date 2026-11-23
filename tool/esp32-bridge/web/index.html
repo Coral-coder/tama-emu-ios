@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tama Bridge flasher</title>
+  <script type="module" src="https://unpkg.com/esp-web-tools@10.1.1/dist/web/install-button.js?module"></script>
+  <style>
+    :root { --bg: #f6f2ff; --ink: #2a1e2e; --card: #fff; --accent: #7b5cff; --muted: #6b6078; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #15121d; --ink: #f2eefa; --card: #221d2e; --accent: #a98cff; --muted: #a89fb8; } }
+    body { margin: 0; font-family: -apple-system, system-ui, Segoe UI, Roboto, sans-serif; background: var(--bg); color: var(--ink); }
+    main { max-width: 720px; margin: 0 auto; padding: 24px 16px 48px; }
+    h1 { font-size: 28px; margin: 8px 0 4px; }
+    p { line-height: 1.5; color: var(--muted); }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 18px; }
+    .card { background: var(--card); border-radius: 16px; padding: 16px; box-shadow: 0 4px 14px rgba(0,0,0,.08); }
+    .card h2 { font-size: 17px; margin: 0 0 4px; color: var(--ink); }
+    .card p { font-size: 13px; margin: 0 0 12px; }
+    esp-web-install-button button, esp-web-install-button [slot="activate"] { background: var(--accent); color: #fff; border: 0; border-radius: 10px; padding: 10px 14px; font-weight: 700; cursor: pointer; }
+    table { border-collapse: collapse; width: 100%; font-size: 14px; }
+    td, th { text-align: left; padding: 6px 4px; border-bottom: 1px solid rgba(127,127,127,.25); }
+    .note { font-size: 13px; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Tama Bridge flasher</h1>
+  <p>Puts the Tama Bridge firmware on an ESP32 from this page: plug the board in with a USB data cable, pick it below, choose its port. Works in Chrome or Edge on a computer (not Safari, not phones).</p>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Any ESP32 board</h2>
+      <p>ESP32 (T-LoRa, DevKit), ESP32-C3, ESP32-S3, ESP32-C6: the chip is recognised and the matching firmware written.</p>
+      <esp-web-install-button manifest="manifest.json"><button slot="activate">Install</button></esp-web-install-button>
+    </div>
+    <div class="card">
+      <h2>Heltec WiFi LoRa 32 V3</h2>
+      <p>With its screen showing the bridge's state.</p>
+      <esp-web-install-button manifest="manifest-heltec-v3.json"><button slot="activate">Install</button></esp-web-install-button>
+    </div>
+    <div class="card">
+      <h2>Heltec WiFi LoRa 32 V4</h2>
+      <p>With its screen showing the bridge's state.</p>
+      <esp-web-install-button manifest="manifest-heltec-v4.json"><button slot="activate">Install</button></esp-web-install-button>
+    </div>
+  </div>
+
+  <h2 style="margin-top:28px">Wiring</h2>
+  <table>
+    <tr><th>Board</th><th>Bridge RX (from toy TX)</th><th>Bridge TX (to toy RX)</th></tr>
+    <tr><td>ESP32 (T-LoRa v1.3, DevKit)</td><td>GPIO 34</td><td>GPIO 13</td></tr>
+    <tr><td>ESP32-C3</td><td>GPIO 20</td><td>GPIO 21</td></tr>
+    <tr><td>ESP32-S3</td><td>GPIO 44</td><td>GPIO 43</td></tr>
+    <tr><td>ESP32-C6</td><td>GPIO 17</td><td>GPIO 16</td></tr>
+    <tr><td>Heltec V3 / V4</td><td>GPIO 47</td><td>GPIO 48</td></tr>
+  </table>
+  <p class="note">Plus GND to GND. Three wires only: do not connect the toy's power. Not the ESP32-S2 (no Bluetooth). If the board is not found: install its USB driver (CP210x or CH340), or hold BOOT while plugging it in.</p>
+  <p class="note">Then in the Tama app: <b>Tools → Dongle</b> to change its settings, <b>Tools → Hardware</b> to use it. A Windows flasher (no browser needed) is on the <a href="https://github.com/Coral-coder/tama-emu-ios/releases">Releases page</a>.</p>
+</main>
+</body>
+</html>

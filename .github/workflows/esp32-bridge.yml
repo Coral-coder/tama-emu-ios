@@ -10,6 +10,8 @@ on:
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 jobs:
   build:
@@ -92,3 +94,43 @@ jobs:
           files: |
             Tama-Bridge-Windows-flasher.zip
             fw/*.bin
+
+  # The web flasher on GitHub Pages (ESP Web Tools: Chrome or Edge, USB, nothing to install).
+  pages:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: fw
+          merge-multiple: true
+      - name: Site
+        run: |
+          set -e
+          FW=$(sed -nE 's/^#define FW_VERSION "([^"]+)"/\1/p' tool/esp32-bridge/esp32-bridge.ino)
+          mkdir -p site
+          cp tool/esp32-bridge/web/index.html site/
+          cp fw/*.bin site/
+          python3 - "$FW" <<'PY'
+          import json, sys
+          v = sys.argv[1]
+          def m(name, builds):
+              return {"name": name, "version": v, "new_install_prompt_erase": True,
+                      "builds": [{"chipFamily": c, "parts": [{"path": f, "offset": 0}]} for c, f in builds]}
+          json.dump(m("Tama Bridge", [("ESP32", "tama-bridge-esp32.bin"), ("ESP32-C3", "tama-bridge-esp32c3.bin"),
+                                      ("ESP32-S3", "tama-bridge-esp32s3.bin"), ("ESP32-C6", "tama-bridge-esp32c6.bin")]),
+                    open("site/manifest.json", "w"), indent=1)
+          json.dump(m("Tama Bridge (Heltec V3)", [("ESP32-S3", "tama-bridge-heltec-v3.bin")]), open("site/manifest-heltec-v3.json", "w"), indent=1)
+          json.dump(m("Tama Bridge (Heltec V4)", [("ESP32-S3", "tama-bridge-heltec-v4.bin")]), open("site/manifest-heltec-v4.json", "w"), indent=1)
+          PY
+          ls -l site
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4
