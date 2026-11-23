@@ -116,6 +116,7 @@ void saveSettings() {
 uint32_t bytesIn = 0, bytesOut = 0;  // from / to the toy
 
 // ---- Bluetooth: the app side (server) ---------------------------------------------------------
+BLEServer *srv = nullptr;
 BLECharacteristic *txChar = nullptr, *cfgChar = nullptr;
 volatile bool appConnected = false;
 uint16_t payload = 20;
@@ -133,7 +134,6 @@ class ServerEvents : public BLEServerCallbacks {
     payload = 20;
     BLEDevice::startAdvertising();
   }
-  void onMtuChanged(BLEServer *s, esp_ble_gatts_cb_param_t *p) override { payload = p->mtu.mtu > 3 ? p->mtu.mtu - 3 : 20; }
 };
 
 class RxEvents : public BLECharacteristicCallbacks {
@@ -157,6 +157,9 @@ class CfgEvents : public BLECharacteristicCallbacks {
 };
 
 void notifyChunks(BLECharacteristic *c, const uint8_t *d, size_t n) {
+  // the packet size the phone agreed to
+  uint16_t mtu = srv ? srv->getPeerMTU(srv->getConnId()) : 23;
+  payload = mtu > 23 ? mtu - 3 : 20;
   for (size_t o = 0; o < n; o += payload) {
     size_t k = min((size_t)payload, n - o);
     c->setValue((uint8_t *)d + o, k);
@@ -396,7 +399,7 @@ void setup() {
 
   BLEDevice::init(S.name.c_str());
   BLEDevice::setMTU(247);
-  BLEServer *srv = BLEDevice::createServer();
+  srv = BLEDevice::createServer();
   srv->setCallbacks(new ServerEvents());
   BLEService *nus = srv->createService(NUS_SERVICE);
   txChar = nus->createCharacteristic(NUS_TX, BLECharacteristic::PROPERTY_NOTIFY);
