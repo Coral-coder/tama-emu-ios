@@ -64,7 +64,7 @@ class ParadiseMachine extends ChangeNotifier {
       ..start();
     _lastUs = 0;
     _due = 0;
-    _timer = Timer.periodic(const Duration(milliseconds: 16), (_) => _frame());
+    _timer = Timer.periodic(Duration(milliseconds: _bg ? 1000 : 16), (_) => _frame());
     notifyListeners();
   }
 
@@ -90,18 +90,21 @@ class ParadiseMachine extends ChangeNotifier {
     }
     final cps = core.cyclesPerSecond.toDouble();
     _due += cps * speed * dt;
-    // at most a quarter of a second behind: past that the emulation does not race to catch up
-    if (_due > cps * 0.25 * speed) _due = cps * 0.25 * speed;
+    // at most a quarter of a second behind (two in the background, run once a second): past that
+    // the emulation does not race to catch up
+    final cap = (_bg ? 2.0 : 0.25) * cps * speed;
+    if (_due > cap) _due = cap;
     final want = _due.floor();
-    final done = (want > 0 ? h.run(want, 12) : 0).clamp(0, want > 0 ? want : 0);
+    final done = (want > 0 ? h.run(want, _bg ? 900 : 12) : 0).clamp(0, want > 0 ? want : 0);
     _due -= done;
     if (dt > 0) load = load * 0.9 + 0.1 * (done / (cps * speed * dt)).clamp(0, 1);
-    if (h.screen(screen)) {
+    if (!_bg && h.screen(screen)) {
       frame++;
       notifyListeners();
     }
     final note = h.note();
-    _tone(sound ? note : 0);
+    // the buzzer plays while the game is on screen; in the background a notification calls
+    _tone(sound && !_bg ? note : 0);
     _watchCalls(note);
     // there is no display to save here: while the game is on screen, the console's screen stays on
     if (!background && keepScreenOn && h.sleeping) h.wake();
@@ -113,7 +116,18 @@ class ParadiseMachine extends ChangeNotifier {
 
   /// While the app is in the background, every sound (after 3 s of quiet: one melody is one
   /// sound) makes [onCall] post a notification.
-  bool background = false;
+  /// In the background nothing is drawn and the console is run once a second: while it sleeps
+  /// (most of the time) the core skips ahead to its next alarm, so little battery goes by.
+  bool _bg = false;
+  bool get background => _bg;
+  set background(bool v) {
+    if (v == _bg) return;
+    _bg = v;
+    if (_timer != null) {
+      _timer!.cancel();
+      _timer = Timer.periodic(Duration(milliseconds: _bg ? 1000 : 16), (_) => _frame());
+    }
+  }
   bool keepScreenOn = true;
   void Function(String title)? onCall;
   int _quietSince = 0;

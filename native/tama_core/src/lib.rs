@@ -39,6 +39,7 @@ pub struct Tama {
     drapeau: u32,               // address of the sound flag (0: not looked up yet)
     veille_depuis: Option<u64>, // since when the core sits parked, powered off
     redemarrages: u32,
+    veilles_sautees: u64, // console cycles skipped while asleep (for the record)
     // the dial: queued steps, played on the encoder lines in emulated time
     tours: std::collections::VecDeque<bool>,
     phase: u8,
@@ -76,6 +77,7 @@ pub extern "C" fn tama_new() -> *mut Tama {
         veille_depuis: None,
         boucle: (0, 0, 0, 0),
         redemarrages: 0,
+        veilles_sautees: 0,
         tours: std::collections::VecDeque::new(),
         phase: 0,
         phase_a: 0,
@@ -155,6 +157,18 @@ pub unsafe extern "C" fn tama_run(t: *mut Tama, cycles: u64, budget_ms: u32) -> 
     t.note_vue = 0.0;
     let mut done: u64 = 0;
     while done < cycles && t0.elapsed() < limit {
+        // Deep sleep: the core is parked until the clock block's alarm (or a key) wakes it, and
+        // only the seconds counter runs. Running the parked loop instruction by instruction would
+        // burn the phone's battery for nothing: the time is skipped ahead instead, a tenth of a
+        // second at a time, so the alarm rings on time and the firmware wakes as on the toy.
+        if t.saut_de_veille() {
+            let pas = (cycles - done).min(CYCLES_PAR_SECONDE as u64 / 10);
+            t.m.periph.snsys.tick(pas as u32);
+            t.m.cpu.cycles += pas;
+            done += pas;
+            t.veilles_sautees += pas;
+            continue;
+        }
         let avant = t.m.cpu.cycles;
         if !matches!(t.m.run_frame(), StepResult::Ok(_)) {
             break;
@@ -304,6 +318,11 @@ impl Tama {
             ram[p + 0x10] = 0;
         }
         true
+    }
+
+    /// Whether the run can skip ahead: asleep, no alarm pending, nothing to press or turn.
+    fn saut_de_veille(&self) -> bool {
+        self.en_veille() && !self.m.periph.snsys.reveil_demande && self.tours.is_empty() && self.auto_relache == 0
     }
 
     /// Deep sleep, on every edition: Capybara knows Water's sleep loop (0x23D0); the others park
@@ -865,4 +884,10 @@ pub unsafe extern "C" fn tama_release_all(t: *mut Tama) {
     t.tours.clear();
     t.phase = 0;
     t.auto_relache = 0;
+}
+
+/// Console cycles skipped while the console slept (not emulated: only its clock ran).
+#[no_mangle]
+pub unsafe extern "C" fn tama_skipped(t: *const Tama) -> u64 {
+    (*t).veilles_sautees
 }
