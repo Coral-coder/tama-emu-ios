@@ -11,6 +11,8 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [features]
 stats = []
+# the natively compiled blocks of src/aot_gen/blocks.rs (made by examples/aot_gen.rs)
+aot = []
 
 [dependencies]
 # What third_party/capybara/src/emulator needs (and nothing of its desktop GUI)

@@ -1318,3 +1318,9 @@ pub unsafe fn print_recomp_stats(t: *mut Tama) {
     }
     let _ = t;
 }
+
+/// For the native-code generator (examples/aot_gen.rs): the hot blocks of this run.
+#[doc(hidden)]
+pub unsafe fn recomp_emit(t: *mut Tama, min_hits: u64) -> Vec<(u32, u64, u32, u64, String)> {
+    (*t).recomp.emit(min_hits)
+}

@@ -51,4 +51,15 @@ and frame rate (iPhone, Apple Watch, Android), without changing what the game do
    interpreter on Water, Neon, Tropical, Sky; recomp_verify 0 differences.
 3. Lockstep tester on all editions; fix until it matches for minutes of play (done for the
    editions above; keep running it when adding forms).
-4. Switch the app's core to it (phone, watch, Android), measure battery and frame rate.
+4. Stage 3, native code (done for the private iOS / watchOS build): tool/aot_gen.sh plays each
+   built-in dump, takes the blocks it ran 50+ times and writes them as Rust functions
+   (src/aot_gen/blocks.rs, ignored by git: it is made from the dumps and must never be
+   committed or shipped publicly). Each runs the very same native operations with the
+   dispatch, lengths and checks compiled away. A block is used only for exactly the same bytes
+   (address, length and FNV-1a of the code), so modified ROMs get native code wherever their
+   code is unchanged and the runtime recompiler elsewhere.
+   All seven editions: 4.3-4.4x the interpreter (Neon 2.9x), screens equal on 187-200 of 200
+   checks against the interpreter, Neon's sleep/wake trace unchanged.
+   The public Android APK does not get it (no ROM-derived code in public builds): build it
+   locally with tool/aot_gen.sh <your dumps> then tool/build_native.sh android.
+5. Next: battery and frame rate measured on the devices.

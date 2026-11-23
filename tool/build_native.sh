@@ -8,14 +8,17 @@ set -e
 cd "$(dirname "$0")/.."
 [ -f third_party/capybara/src/emulator/mod.rs ] || git submodule update --init third_party/capybara
 cd native/tama_core
+# the natively compiled blocks of the built-in ROMs, when tool/aot_gen.sh made them
+FEAT=""
+[ -f src/aot_gen/blocks.rs ] && FEAT="--features aot" && echo "native blocks: compiled in"
 case "$1" in
   android)
     rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android >/dev/null
-    cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -P 24 -o ../../android/app/src/main/jniLibs build --release --lib
+    cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -P 24 -o ../../android/app/src/main/jniLibs build --release --lib $FEAT
     ls -l ../../android/app/src/main/jniLibs/*/ ;;
   ios)
     rustup target add aarch64-apple-ios >/dev/null
-    IPHONEOS_DEPLOYMENT_TARGET=15.0 cargo rustc --release --lib --target aarch64-apple-ios --crate-type staticlib
+    IPHONEOS_DEPLOYMENT_TARGET=15.0 cargo rustc --release --lib $FEAT --target aarch64-apple-ios --crate-type staticlib
     ls -l target/aarch64-apple-ios/release/libtama_core.a ;;
   watchos)
     # The watchOS targets are tier 3: built with nightly and the standard library from source.
@@ -24,13 +27,13 @@ case "$1" in
     mkdir -p $out
     libs=""
     for t in arm64_32-apple-watchos aarch64-apple-watchos; do
-      WATCHOS_DEPLOYMENT_TARGET=9.0 cargo +nightly rustc -Z build-std=std,panic_abort --release --lib --target $t --crate-type staticlib
+      WATCHOS_DEPLOYMENT_TARGET=9.0 cargo +nightly rustc -Z build-std=std,panic_abort --release --lib $FEAT --target $t --crate-type staticlib
       libs="$libs target/$t/release/libtama_core.a"
     done
     lipo -create $libs -output $out/libtama_core.a
     lipo -info $out/libtama_core.a ;;
   host)
-    cargo build --release --lib
+    cargo build --release --lib $FEAT
     ls -l target/release/libtama_core.so ;;
   *) echo "usage: $0 android|ios|watchos|host"; exit 1 ;;
 esac

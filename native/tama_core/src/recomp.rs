@@ -16,7 +16,7 @@ use crate::emulator::{Machine, StepResult};
 
 /// One pre-decoded instruction. The common forms run natively (each mirrors Capybara's code for
 /// that form: same result, flags and cycles); everything else goes to Capybara's executor.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum Op {
     Capy { w1: u16, w2: u16, long: bool },
     /// MOVS / CMP / ADDS / SUBS rd, #imm8
@@ -76,7 +76,7 @@ enum Op {
 }
 
 /// Second operand of a 32-bit data-processing instruction.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum Src {
     /// imm12 with imm12[11:10] == 00: the value; the carry stays
     ImmKeep(u32),
@@ -141,6 +141,43 @@ struct Block {
     /// Its first and last 8 bytes (the block spans at least 8: see build)
     head: u64,
     tail: u64,
+    /// The natively compiled version of this block, when the build made one (see aot_blocks)
+    aot: Option<AotFn>,
+    /// Times run (what the generator looks at)
+    hits: u64,
+}
+
+/// A block compiled to native code: runs it, returns (instructions, cycles, stop).
+pub type AotFn = fn(&mut Machine) -> (u32, u32, bool);
+
+// The natively compiled blocks of the built-in ROMs, made at build time by
+// examples/aot_gen.rs from the dumps (never committed: generated into src/aot_gen/, ignored).
+#[cfg(feature = "aot")]
+#[path = "aot_gen/blocks.rs"]
+mod aot_blocks;
+#[cfg(feature = "aot")]
+use aot_blocks::AOT;
+#[cfg(not(feature = "aot"))]
+static AOT: &[(u32, u64, u32, AotFn)] = &[];
+
+/// FNV-1a over a block's bytes: a compiled block is only used for exactly the same code.
+fn fnv64(b: &[u8]) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for &x in b {
+        h = (h ^ x as u64).wrapping_mul(0x100_0000_01b3);
+    }
+    h
+}
+
+/// After a store: a DMA end to signal; whether an interrupt (or an IT block) now needs the
+/// interpreter. (What the block loop does after such an op.)
+#[inline(always)]
+fn side(m: &mut Machine) -> bool {
+    if m.periph.dma.irq_a_lever {
+        m.periph.dma.irq_a_lever = false;
+        m.cpu.nvic.request_irq(crate::emulator::peripherals::dma::IRQ);
+    }
+    m.cpu.regs.itstate & 0x0F != 0 || (m.cpu.nvic.en_attente && m.cpu.regs.mode == Mode::Thread && m.cpu.regs.primask == 0)
 }
 
 const MAX_OPS: usize = 32;
@@ -238,7 +275,11 @@ impl Recomp {
         let bytes = Self::code_bytes(m, pc, keep)?.to_vec();
         let head = u64::from_le_bytes(bytes[..8].try_into().unwrap());
         let tail = u64::from_le_bytes(bytes[keep - 8..].try_into().unwrap());
-        Some(Block { ops, bytes, head, tail })
+        // several editions may have a block at this address: the one with exactly these bytes
+        let first = AOT.partition_point(|e| e.0 < pc);
+        let hash = if first < AOT.len() && AOT[first].0 == pc { fnv64(&bytes) } else { 0 };
+        let aot = AOT[first..].iter().take_while(|e| e.0 == pc).find(|e| e.2 as usize == keep && e.1 == hash).map(|e| e.3);
+        Some(Block { ops, bytes, head, tail, aot, hits: 0 })
     }
 
     /// The native form of an instruction at `at`, or Capybara's executor.
@@ -935,8 +976,22 @@ impl Recomp {
                 self.slots[slot] = ix;
                 self.built += 1;
             }
-            let block = &self.blocks[ix as usize - 1];
             self.ran += 1;
+            let block = &mut self.blocks[ix as usize - 1];
+            block.hits += 1;
+            if let Some(f) = block.aot {
+                let (k, cyc, _stop) = f(m);
+                done += k;
+                m.cpu.cycles += cyc as u64;
+                self.pending += cyc;
+                if self.pending >= 256 {
+                    let e = self.pending;
+                    self.pending = 0;
+                    service(m, e);
+                }
+                continue;
+            }
+            let block = &self.blocks[ix as usize - 1];
             // Within a block only branches move the pc elsewhere and only stores (and Capybara's
             // own forms) can raise an interrupt: those are the only places worth a look.
             // Cycles are summed and given to the peripherals at the end of the block.
@@ -1001,6 +1056,45 @@ impl Recomp {
             }
         }
         (done, Exit::Ok)
+    }
+}
+
+impl Recomp {
+    /// For the generator: every block run at least `min_hits` times and made only of native
+    /// operations, as (pc, head, tail, length kept, hits, Rust source of its function).
+    pub fn emit(&self, min_hits: u64) -> Vec<(u32, u64, u32, u64, String)> {
+        let mut out = Vec::new();
+        for (slot, &ix) in self.slots.iter().enumerate() {
+            if ix == 0 {
+                continue;
+            }
+            let b = &self.blocks[ix as usize - 1];
+            if b.hits < min_hits || b.ops.iter().any(|(op, _, _)| matches!(op, Op::Capy { .. })) {
+                continue;
+            }
+            let pc = if slot < PRAM_SLOTS { (slot as u32) << 1 } else { 0x1000_0000 + (((slot - PRAM_SLOTS) as u32) << 1) };
+            let mut f = String::new();
+            f.push_str("    let mut cyc = 0u32;\n");
+            let mut next = pc;
+            let n = b.ops.len();
+            for (k, (op, len, flags)) in b.ops.iter().enumerate() {
+                next = next.wrapping_add(*len as u32);
+                let lit = format!("Op::{:?}", op)
+                    .replace("src: ImmKeep(", "src: Src::ImmKeep(")
+                    .replace("src: ImmCarry(", "src: Src::ImmCarry(")
+                    .replace("src: Reg {", "src: Src::Reg {");
+                f.push_str(&format!("    m.cpu.regs.pc = 0x{:X};\n    cyc += Recomp::native(&{}, m);\n", next, lit));
+                if flags & SIDE != 0 {
+                    f.push_str(&format!("    if side(m) {{ return ({}, cyc, true); }}\n", k + 1));
+                }
+                if flags & BR != 0 {
+                    f.push_str(&format!("    if m.cpu.regs.pc != 0x{:X} {{ return ({}, cyc, false); }}\n", next, k + 1));
+                }
+            }
+            f.push_str(&format!("    ({}, cyc, false)\n", n));
+            out.push((pc, fnv64(&b.bytes), b.bytes.len() as u32, b.hits, f));
+        }
+        out
     }
 }
 

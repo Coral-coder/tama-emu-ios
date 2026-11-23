@@ -64,3 +64,6 @@ app.*.map.json
 
 # your own icon picture (kept out of the repository)
 assets/icon/custom-icon.*
+
+# Native code generated at build time from the dumps (never commit)
+/native/tama_core/src/aot_gen/

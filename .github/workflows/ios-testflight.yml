@@ -214,11 +214,14 @@ jobs:
         run: |
           tool/sync_paramix.sh
           rustup target add aarch64-apple-ios
+          tool/roms.sh decrypt
+          # the built-in ROMs compiled to native code (private TestFlight build only; the file
+          # is made from the dumps and ignored by git)
+          tool/aot_gen.sh
           tool/build_native.sh ios
           tool/build_studio.sh
           # the Apple Watch app runs the same core: built for watchOS too (left out if this fails)
           if tool/build_native.sh watchos; then touch ios/build_watch_lib; else echo "::warning::The core did not build for watchOS: no Apple Watch app in this build"; fi
-          tool/roms.sh decrypt
           flutter pub get
           flutter build ios --release --no-codesign --config-only
           ls ios
