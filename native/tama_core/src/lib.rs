@@ -23,6 +23,11 @@ use emulator::{Machine, StepResult};
 
 pub struct Tama {
     m: Machine,
+    // the firmware's pin-read function (found by its bytes): read on the screen's TE pin, it is
+    // the wait for the next frame, which the run skips instead of emulating poll after poll
+    lecture_broche: Option<u32>,
+    lecture_cherchee: u64,
+    attentes_sautees: u64,
     // sound, followed as Capybara does: the voice table is looked up at the start of every sound
     son_jouait: bool,
     derniere_recherche: u64,
@@ -63,6 +68,9 @@ unsafe fn path_of(p: *const c_char) -> Option<PathBuf> {
 pub extern "C" fn tama_new() -> *mut Tama {
     Box::into_raw(Box::new(Tama {
         m: Machine::new(),
+        lecture_broche: None,
+        lecture_cherchee: 0,
+        attentes_sautees: 0,
         son_jouait: false,
         derniere_recherche: 0,
         note_perimee: 0.0,
@@ -180,7 +188,7 @@ pub unsafe extern "C" fn tama_run(t: *mut Tama, cycles: u64, budget_ms: u32) -> 
             continue;
         }
         let avant = t.m.cpu.cycles;
-        if !matches!(t.m.run_frame(), StepResult::Ok(_)) {
+        if !t.tranche() {
             break;
         }
         let apres = t.m.cpu.cycles;
@@ -202,6 +210,103 @@ pub unsafe extern "C" fn tama_run(t: *mut Tama, cycles: u64, budget_ms: u32) -> 
 }
 
 impl Tama {
+    /// Bytes of the firmware's GPIO pin-read function (r0 = port << 4 | pin), the same in every
+    /// edition (Water, Land, Sky, Jade: 0x5D0C, Tropical, Glacier: 0x58C4, Neon: 0x5CEC).
+    const LECTURE_BROCHE: [u8; 10] = [0x87, 0xB0, 0x8D, 0xF8, 0x1B, 0x00, 0x05, 0x91, 0x04, 0x92];
+    /// The screen's TE line, port 1 pin 10, as the firmware names it.
+    const BROCHE_TE: u32 = 0x1A;
+
+    /// Looks for the pin-read function in program memory (once the boot has filled it).
+    fn chercher_lecture(&mut self) {
+        let now = self.m.cpu.cycles;
+        if self.lecture_broche.is_some() || now < self.lecture_cherchee {
+            return;
+        }
+        self.lecture_cherchee = now + 2 * CYCLES_PAR_SECONDE as u64;
+        let m = &mut self.m;
+        let mut code = vec![0u8; 0x10000];
+        for i in (0..0x10000u32).step_by(2) {
+            let w = m.bus.read_u16(i, &mut m.periph, &m.cpu.nvic);
+            code[i as usize] = w as u8;
+            code[i as usize + 1] = (w >> 8) as u8;
+        }
+        let sig = Self::LECTURE_BROCHE;
+        let mut trouve = (0..code.len() - sig.len()).step_by(2).filter(|&i| code[i..i + sig.len()] == sig);
+        if let (Some(a), None) = (trouve.next(), trouve.next()) {
+            self.lecture_broche = Some(a as u32);
+        }
+    }
+
+    /// One slice of the console, instruction by instruction (what Capybara's run_frame does),
+    /// except that a read of the TE pin skips the time until the pin changes. False when the
+    /// core stopped.
+    fn tranche(&mut self) -> bool {
+        if !self.m.is_running {
+            return false;
+        }
+        self.chercher_lecture();
+        let lecture = self.lecture_broche.unwrap_or(u32::MAX);
+        for _ in 0..self.m.instructions_per_frame {
+            if self.m.cpu.regs.pc == lecture && self.m.cpu.regs.get_reg(0) == Self::BROCHE_TE {
+                self.attendre_te();
+            }
+            match self.m.step() {
+                StepResult::Ok(_) => {}
+                _ => {
+                    self.m.is_running = false;
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    /// The firmware polls the TE pin for the next frame: the peripherals run on without the
+    /// core until the pin changes, an interrupt is due, or a millisecond went by (the SysTick
+    /// must not lose a tick). On the toy the core does nothing else meanwhile either.
+    fn attendre_te(&mut self) {
+        const PAS: u32 = 2048;
+        let masque = 1u32 << 10;
+        let avant = self.m.periph.port1.entrees & masque;
+        let mut fait = 0u32;
+        while fait < CYCLES_PAR_SECONDE as u32 / 1000 {
+            self.entretenir(PAS);
+            fait += PAS;
+            let n = &self.m.cpu.nvic;
+            if self.m.periph.port1.entrees & masque != avant || n.systick_pending || n.en_attente || self.m.periph.snsys.reveil_demande {
+                break;
+            }
+        }
+        self.m.cpu.cycles += fait as u64;
+        self.attentes_sautees += fait as u64;
+    }
+
+    /// What Capybara's core does with the cycles of its instructions (entretenir_peripheriques).
+    fn entretenir(&mut self, e: u32) {
+        use emulator::peripherals::{adc_pile, gpio_port};
+        let c = &mut self.m.cpu;
+        let p = &mut self.m.periph;
+        c.nvic.tick_systick(e);
+        if p.port1.tick(e) {
+            c.nvic.request_irq(gpio_port::PORT1_IRQ);
+        }
+        if let Some(irq) = p.tic.tick(e) {
+            c.nvic.request_irq(irq);
+        }
+        if p.adc_pile.irq_a_lever | p.adc_pile.tick(e) {
+            p.adc_pile.irq_a_lever = false;
+            c.nvic.request_irq(adc_pile::IRQ);
+        }
+        if p.timers.tick(e) {
+            c.nvic.request_irq(16);
+        }
+        p.uart.tick(e, CYCLES_PAR_SECONDE as u32);
+        if p.uart.irq_pending {
+            c.nvic.request_irq(37);
+        }
+        p.snsys.tick(e);
+    }
+
     /// Plays the queued dial steps: each step is the two encoder lines in quadrature (A down,
     /// B down, A up, B up), 12 ms of console time apart, so the firmware sees every edge.
     fn tourner(&mut self) {
@@ -821,6 +926,12 @@ pub unsafe extern "C" fn tama_advance(t: *mut Tama, seconds: u32) {
     }
 }
 
+/// Console cycles skipped while the firmware waited for the screen (TE pin), since the start.
+#[no_mangle]
+pub unsafe extern "C" fn tama_waits_skipped(t: *const Tama) -> u64 {
+    (*t).attentes_sautees
+}
+
 /// Seconds the console will stay parked in deep sleep by itself (until its alarm; 3600 when no
 /// alarm is set), 0 while it is awake. In the background nothing needs to run before then.
 #[no_mangle]
@@ -1031,4 +1142,21 @@ pub unsafe extern "C" fn tama_pet_places(t: *mut Tama, out: *mut u32) {
 #[no_mangle]
 pub unsafe extern "C" fn tama_seconds(t: *const Tama) -> u32 {
     (*t).m.periph.snsys.secondes
+}
+
+/// Debugging (examples only): the machine inside.
+#[doc(hidden)]
+pub unsafe fn machine<'a>(t: *mut Tama) -> &'a mut Machine {
+    &mut (*t).m
+}
+
+/// Debugging (examples only): one instruction as the run does it (TE waits skipped).
+#[doc(hidden)]
+pub unsafe fn step_one(t: *mut Tama) {
+    let t = &mut *t;
+    t.chercher_lecture();
+    if Some(t.m.cpu.regs.pc) == t.lecture_broche && t.m.cpu.regs.get_reg(0) == Tama::BROCHE_TE {
+        t.attendre_te();
+    }
+    t.m.step();
 }

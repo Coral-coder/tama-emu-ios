@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui' as ui;
 
 import 'package:flutter/services.dart';
@@ -64,16 +65,32 @@ class _ParadiseViewState extends State<ParadiseView> {
 
   @override
   void dispose() {
+    _later?.cancel();
     m.removeListener(_onFrame);
     NativeBridge.keepScreenOn(false);
     super.dispose();
   }
+
+  // The upscalers work on the processor: at most 30 pictures a second (the toy's own screen
+  // changes about that often); a change in between is drawn when the time comes.
+  final Stopwatch _since = Stopwatch()..start();
+  Timer? _later;
 
   void _onFrame() {
     if (m.frame == _shown) {
       if (mounted) setState(() {});
       return;
     }
+    final app = AppState.instance;
+    final costly = app.upscale != Upscale.pixel && app.upscale != Upscale.smooth;
+    if (costly && _since.elapsedMilliseconds < 33) {
+      _later ??= Timer(Duration(milliseconds: 34 - _since.elapsedMilliseconds), () {
+        _later = null;
+        if (mounted) _onFrame();
+      });
+      return;
+    }
+    _since.reset();
     if (_decoding) return; // big upscales: one picture at a time, the next tick takes the newest
     _shown = m.frame;
     final s = m.screen;
@@ -84,7 +101,6 @@ class _ParadiseViewState extends State<ParadiseView> {
       _rgba[i * 4 + 2] = (v & 31) * 255 ~/ 31;
       _rgba[i * 4 + 3] = 255;
     }
-    final app = AppState.instance;
     final f = processFrame(_rgba, app.upscale, app.filters);
     _decoding = true;
     ui.decodeImageFromPixels(f.rgba, f.w, f.h, ui.PixelFormat.rgba8888, (im) {
