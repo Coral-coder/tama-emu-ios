@@ -1,0 +1,87 @@
+# Builds the Tama Bridge firmware (tool/esp32-bridge) for every ESP32 with Bluetooth LE and
+# publishes it on the Releases page, with a Windows flasher (flash.bat + esptool, no install).
+name: ESP32 bridge firmware
+
+on:
+  push:
+    branches: [main]
+    paths: ['tool/esp32-bridge/**', '.github/workflows/esp32-bridge.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - chip: esp32
+            fqbn: esp32:esp32:esp32:PartitionScheme=huge_app
+          - chip: esp32c3
+            fqbn: esp32:esp32:esp32c3:CDCOnBoot=cdc,PartitionScheme=huge_app
+          - chip: esp32s3
+            fqbn: esp32:esp32:esp32s3:CDCOnBoot=cdc,PartitionScheme=huge_app
+          - chip: esp32c6
+            fqbn: esp32:esp32:esp32c6:CDCOnBoot=cdc,PartitionScheme=huge_app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: arduino/setup-arduino-cli@v2
+      - name: ESP32 core and libraries
+        run: |
+          arduino-cli config init --overwrite
+          arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32
+          arduino-cli lib install ArduinoJson
+      - name: Build
+        run: |
+          arduino-cli compile --fqbn '${{ matrix.fqbn }}' --export-binaries --output-dir out tool/esp32-bridge
+          ls -l out
+          cp out/esp32-bridge.ino.merged.bin tama-bridge-${{ matrix.chip }}.bin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fw-${{ matrix.chip }}
+          path: tama-bridge-${{ matrix.chip }}.bin
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: fw
+          merge-multiple: true
+      - name: Windows flasher
+        run: |
+          set -e
+          mkdir -p pkg/esptool
+          curl -fsSL -o esptool.zip https://github.com/espressif/esptool/releases/download/v4.8.1/esptool-v4.8.1-win64.zip
+          unzip -q esptool.zip -d esptool-x
+          exe=$(find esptool-x -iname esptool.exe | head -1)
+          cp -r "$(dirname "$exe")"/. pkg/esptool/
+          cp fw/*.bin pkg/
+          cp tool/esp32-bridge/windows/flash.bat tool/esp32-bridge/windows/flash.ps1 pkg/
+          cp tool/esp32-bridge/README.md pkg/README.md
+          (cd pkg && zip -qr ../Tama-Bridge-Windows-flasher.zip .)
+          ls -l pkg fw
+      - name: Version
+        run: echo "FW=$(sed -nE 's/^#define FW_VERSION "([^"]+)"/\1/p' tool/esp32-bridge/esp32-bridge.ino)" >> "$GITHUB_ENV"
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: esp32-bridge-${{ env.FW }}-${{ github.run_number }}
+          name: Tama Bridge ${{ env.FW }} (build ${{ github.run_number }})
+          body: |
+            Firmware for the Tama Bridge (an ESP32 between a Tamagotchi's link port and the Tama app).
+
+            **Windows:** download `Tama-Bridge-Windows-flasher.zip`, unzip, plug the ESP32 in with USB, double-click `flash.bat`. It finds the board, recognises its chip and writes the right firmware.
+
+            **Other systems:** write the `.bin` for your chip at address 0x0 (esptool, or https://espressif.github.io/esptool-js/).
+
+            Wiring: see README.md (bridge TX to toy RX, bridge RX to toy TX, GND to GND).
+          files: |
+            Tama-Bridge-Windows-flasher.zip
+            fw/*.bin
