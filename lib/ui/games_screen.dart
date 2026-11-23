@@ -7,6 +7,8 @@ import '../emu/rom_info.dart';
 import '../services/app_state.dart';
 import '../services/rom_library.dart';
 import '../paradise/unlock.dart';
+import 'paradise_screen.dart';
+import 'save_editor.dart';
 import 'theme.dart';
 
 /// All games: the Paradise dumps (with their edition's field as cover) and the first toys.
@@ -22,7 +24,7 @@ class GamesScreen extends StatelessWidget {
         actions: [IconButton(tooltip: 'Import a ROM', icon: const Icon(Icons.add_circle_outline), onPressed: () => importRoms(context))],
       ),
       body: ListenableBuilder(
-        listenable: lib,
+        listenable: Listenable.merge([lib, AppState.instance]),
         builder: (context, _) {
           if (!lib.ready) return const Center(child: CircularProgressIndicator());
           final games = lib.entries.where((e) => e.kind != RomKind.other).toList();
@@ -130,20 +132,9 @@ class _GameCard extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: () => startGame(context, e),
+        onLongPress: e.kind == RomKind.paradise ? () => showGameMenu(context, e) : null,
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Expanded(
-            child: FutureBuilder<File?>(
-              future: AppState.instance.library.cover(e),
-              builder: (context, snap) {
-                final f = snap.data;
-                if (f != null) return Image.file(f, fit: BoxFit.cover, filterQuality: FilterQuality.medium);
-                if (e.kind == RomKind.paradise && snap.connectionState != ConnectionState.done) {
-                  return const Center(child: CircularProgressIndicator(strokeWidth: 2));
-                }
-                return _ToyCover(name: short);
-              },
-            ),
-          ),
+          Expanded(child: _Picture(entry: e, short: short)),
           Padding(
             padding: const EdgeInsets.fromLTRB(10, 8, 10, 2),
             child: Text(short, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
@@ -155,6 +146,54 @@ class _GameCard extends StatelessWidget {
           ),
         ]),
       ),
+    );
+  }
+}
+
+/// The game's picture: its screen, live, while it runs; the last picture of it when it does not;
+/// the cover of its edition before it was ever played.
+class _Picture extends StatelessWidget {
+  const _Picture({required this.entry, required this.short});
+  final RomEntry entry;
+  final String short;
+
+  @override
+  Widget build(BuildContext context) {
+    final app = AppState.instance;
+    final e = entry;
+    final live = app.games[e.id];
+    if (live != null) {
+      return Stack(fit: StackFit.expand, children: [
+        ParadiseScreen(machine: live),
+        Positioned(
+          left: 8,
+          top: 8,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(10)),
+            child: const Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(Icons.favorite, size: 12, color: Color(0xFFFF7A90)),
+              SizedBox(width: 4),
+              Text('living', style: TextStyle(fontSize: 11, color: Colors.white)),
+            ]),
+          ),
+        ),
+      ]);
+    }
+    final shot = app.shotFile(e.id);
+    if (e.kind == RomKind.paradise && shot.existsSync()) {
+      return Image.file(shot, key: ValueKey('${e.id}-${app.shotRevision}'), fit: BoxFit.cover, filterQuality: FilterQuality.none);
+    }
+    return FutureBuilder<File?>(
+      future: app.library.cover(e),
+      builder: (context, snap) {
+        final f = snap.data;
+        if (f != null) return Image.file(f, fit: BoxFit.cover, filterQuality: FilterQuality.medium);
+        if (e.kind == RomKind.paradise && snap.connectionState != ConnectionState.done) {
+          return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+        }
+        return _ToyCover(name: short);
+      },
     );
   }
 }

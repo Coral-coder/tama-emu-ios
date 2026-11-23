@@ -10,6 +10,7 @@ import 'games_screen.dart';
 import 'lcd_view.dart';
 import 'paradise_view.dart';
 import '../paradise/unlock.dart';
+import 'link_screen.dart';
 import 'theme.dart';
 
 class PlayScreen extends StatelessWidget {
@@ -164,7 +165,7 @@ class _ToyState extends State<_Toy> {
           label: Text('${m.speed}×'),
         ),
         OutlinedButton.icon(
-          onPressed: () => AppState.instance.page.value = 3,
+          onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const LinkScreen())),
           icon: Icon(m.linked ? Icons.link : Icons.link_off),
           label: const Text('Link'),
         ),

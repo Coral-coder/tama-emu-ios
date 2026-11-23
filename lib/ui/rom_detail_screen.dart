@@ -11,6 +11,7 @@ import '../paramix/sprites.dart';
 import '../services/app_state.dart';
 import '../services/rom_library.dart';
 import 'games_screen.dart';
+import 'device_screen.dart';
 import 'theme.dart';
 
 /// One ROM in the Studio: what it is, its pictures, and what to do with it.
@@ -98,10 +99,7 @@ class _RomDetailScreenState extends State<RomDetailScreen> {
                 ),
                 if (e.kind == RomKind.paradise)
                   OutlinedButton.icon(
-                    onPressed: () {
-                      Navigator.of(context).pop();
-                      AppState.instance.page.value = 1;
-                    },
+                    onPressed: () => Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const DeviceScreen())),
                     icon: const Icon(Icons.upload),
                     label: const Text('Write to the device'),
                   ),

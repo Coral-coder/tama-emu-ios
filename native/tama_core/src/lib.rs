@@ -254,6 +254,47 @@ impl Tama {
         [0xEFE000usize, 0xEFF000].into_iter().find(|&a| ok(a)).map(|a| &f[a..a + 0x1000])
     }
 
+    /// Flash addresses of the valid settings blocks (Neon: its newest ring page; the others: the
+    /// block and its copy).
+    fn blocs_flash_adresses(&self) -> Vec<usize> {
+        let Some(p) = self.bloc_flash() else { return Vec::new() };
+        let f = &self.m.bus.flash.data;
+        let base = p.as_ptr() as usize - f.as_ptr() as usize;
+        let neon = base >= 0xD86000 && base < 0xD8B000;
+        if neon {
+            return vec![base];
+        }
+        [0xEFE000usize, 0xEFF000]
+            .into_iter()
+            .filter(|&a| {
+                let q = &f[a..a + 0x1000];
+                let c = crc16_arc(&q[4..]);
+                u16::from_le_bytes([q[0], q[1]]) == c
+            })
+            .collect()
+    }
+
+    /// Writes bytes into the settings block: its working copy in RAM and the save in flash (the
+    /// checksum made right), so a restart keeps the change.
+    fn ecrire_bloc(&mut self, offset: usize, octets: &[u8]) -> bool {
+        if offset < 4 || offset + octets.len() > 0x1000 {
+            return false;
+        }
+        let Some((o, _)) = self.trouver_bloc() else { return false };
+        self.m.bus.sram.data[o + offset..o + offset + octets.len()].copy_from_slice(octets);
+        for a in self.blocs_flash_adresses() {
+            let flash = &mut self.m.bus.flash;
+            let p = &mut flash.data[a..a + 0x1000];
+            p[offset..offset + octets.len()].copy_from_slice(octets);
+            let c = crc16_arc(&p[4..]);
+            p[0..2].copy_from_slice(&c.to_le_bytes());
+            p[2..4].copy_from_slice(&(!c).to_le_bytes());
+            flash.pages_salies.insert(a / 0x1000);
+            flash.revision = flash.revision.wrapping_add(1);
+        }
+        true
+    }
+
     /// Where the pet's record sits in this edition's settings block.
     fn place_du_tama(&self) -> usize {
         let f = &self.m.bus.flash.data;
@@ -941,4 +982,27 @@ pub unsafe extern "C" fn tama_link_give(t: *mut Tama, data: *const u8, n: u32) {
 #[no_mangle]
 pub unsafe extern "C" fn tama_link_clear(t: *mut Tama) {
     (*t).m.periph.uart.vider_la_ligne();
+}
+
+/// Writes n bytes at offset into the game's settings block (RAM and flash, checksum fixed). 1 ok.
+#[no_mangle]
+pub unsafe extern "C" fn tama_block_write(t: *mut Tama, offset: u32, data: *const u8, n: u32) -> i32 {
+    let t = &mut *t;
+    let d = std::slice::from_raw_parts(data, n as usize).to_vec();
+    t.ecrire_bloc(offset as usize, &d) as i32
+}
+
+/// Where the pet's record and the planet level sit in the settings block: out[0] pet, out[1] level.
+#[no_mangle]
+pub unsafe extern "C" fn tama_pet_places(t: *mut Tama, out: *mut u32) {
+    let t = &*t;
+    let p = t.place_du_tama();
+    *out = p as u32;
+    *out.add(1) = if p == 0x114 { 0x88 } else { 0x7C };
+}
+
+/// The console's seconds counter (its clock is the settings' origin plus this).
+#[no_mangle]
+pub unsafe extern "C" fn tama_seconds(t: *const Tama) -> u32 {
+    (*t).m.periph.snsys.secondes
 }

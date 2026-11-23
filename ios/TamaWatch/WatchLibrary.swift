@@ -59,6 +59,7 @@ final class WatchLibrary: ObservableObject {
     if let n = m["name"] as? String { g.name = n }
     if let k = m["key"] as? NSNumber { g.key = k.uint32Value }
     if let c = m["care"] as? NSNumber { g.care = c.uint32Value }
+    if (m["last"] as? Bool) == true { UserDefaults.standard.set(id, forKey: "lastGame") }
     let target = kind == "dump" ? dump(id) : save(id)
     if kind == "save" {
       let stamp = (m["savedAt"] as? NSNumber)?.doubleValue ?? Date().timeIntervalSince1970

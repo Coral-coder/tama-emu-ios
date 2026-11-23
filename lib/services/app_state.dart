@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:image/image.dart' as img;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../emu/machine.dart';
@@ -10,6 +12,7 @@ import '../paradise/paradise_machine.dart';
 import '../ui/screen_filters.dart';
 import 'native.dart';
 import '../paradise/unit_link.dart';
+import '../ui/shell_theme.dart';
 import 'rom_library.dart';
 import 'watch.dart';
 import 'serial/serial_hub.dart';
@@ -47,8 +50,13 @@ class AppState extends ChangeNotifier {
   RomEntry? machineRom;
 
   /// The running Tamagotchi Paradise (Capybara core), when one is played.
-  ParadiseMachine? paradise;
-  RomEntry? paradiseRom;
+  /// Every Paradise game that is running (several at once: each lives on, its own save, in the
+  /// background), and the one on screen.
+  final Map<String, ParadiseMachine> games = {};
+  final Map<String, RomEntry> gameRoms = {};
+  String? focused;
+  ParadiseMachine? get paradise => focused == null ? null : games[focused];
+  RomEntry? get paradiseRom => focused == null ? null : gameRoms[focused];
   /// A second game running beside the first, linked to it (two units held together).
   ParadiseMachine? partner;
   RomEntry? partnerRom;
@@ -63,6 +71,14 @@ class AppState extends ChangeNotifier {
   /// Keeps the console (and the phone's screen) awake while a game is shown. Off: it sleeps like
   /// the toy, and spends far less battery.
   bool keepScreenOn = false;
+
+  /// The app coloured like a toy (shell, buttons, dial).
+  ShellTheme shellTheme = ShellTheme.presets.first;
+  Future<void> setShellTheme(ShellTheme t) async {
+    shellTheme = t;
+    await prefs.setString('shellTheme', t.encode());
+    notifyListeners();
+  }
   bool ghostDots = true;
   Upscale upscale = Upscale.scale2x;
   ScreenFilter filter = ScreenFilter.none;
@@ -87,6 +103,7 @@ class AppState extends ChangeNotifier {
     sound = prefs.getBool('sound') ?? true;
     backgroundRun = prefs.getBool('backgroundRun') ?? true;
     keepScreenOn = prefs.getBool('keepScreenOn') ?? false;
+    shellTheme = ShellTheme.decode(prefs.getString('shellTheme')) ?? ShellTheme.presets.first;
     ghostDots = prefs.getBool('ghostDots') ?? true;
     upscale = Upscale.values.asNameMap()[prefs.getString('upscale')] ?? Upscale.scale2x;
     filter = ScreenFilter.values.asNameMap()[prefs.getString('filter')] ?? ScreenFilter.none;
@@ -95,6 +112,10 @@ class AppState extends ChangeNotifier {
     await library.init();
     unawaited(library.unpackAll());
     WatchLink.instance.start();
+    for (final id in prefs.getStringList('runningGames') ?? const <String>[]) {
+      final e = library.entries.where((x) => x.id == id && x.kind == RomKind.paradise);
+      if (e.isNotEmpty) await playParadise(e.first, focus: false);
+    }
     final last = prefs.getString('lastToy');
     if (last != null) {
       final e = library.entries.where((x) => x.id == last);
@@ -134,11 +155,15 @@ class AppState extends ChangeNotifier {
 
   /// Starts a Paradise ROM. Returns null when it runs, or the reason it does not
   /// ('key' when the device key is missing or wrong).
-  Future<String?> playParadise(RomEntry e, {int? key}) async {
+  Future<String?> playParadise(RomEntry e, {int? key, bool focus = true}) async {
     final core = ParadiseCore.instance;
     if (core == null) return 'The Paradise core is not in this build (${ParadiseCore.loadError}).';
-    await stopToy();
-    await stopParadise();
+    if (focus) await stopToy();
+    final running = games[e.id];
+    if (running != null) {
+      if (focus) _focus(e.id);
+      return null;
+    }
     final dump = await library.romFile(e);
     final m = ParadiseMachine(core: core, dumpPath: dump.path, savePath: library.paradiseSave(e).path, title: e.name)
       ..sound = sound
@@ -152,12 +177,84 @@ class AppState extends ChangeNotifier {
       return r == 0 ? 'key' : m.error;
     }
     if (key != null) await setParadiseKey(e, key);
-    paradise = m;
-    paradiseRom = e;
-    await prefs.setString('lastToy', e.id);
-    if (backgroundRun) await NativeBridge.keepAlive(true, title: 'Tama', text: '${e.name} is living');
+    games[e.id] = m;
+    gameRoms[e.id] = e;
+    m.background = true;
+    await _rememberRunning();
+    if (focus) {
+      _focus(e.id);
+      await prefs.setString('lastToy', e.id);
+    }
+    if (backgroundRun) await NativeBridge.keepAlive(true, title: 'Tama', text: '${games.length == 1 ? e.name : '${games.length} Tamagotchis'} living');
     notifyListeners();
     return null;
+  }
+
+  /// Puts a running game on screen; the others go on in the background (no drawing, once a
+  /// second, the console mostly asleep).
+  void _focus(String? id) {
+    focused = id;
+    for (final g in games.entries) {
+      g.value.background = g.key != id || _bgAt != null;
+      if (g.key != id) g.value.releaseAll();
+    }
+    notifyListeners();
+  }
+
+  /// Back to the games: the one on screen goes on living in the background.
+  Future<void> showGames() async {
+    await unlink();
+    final m = paradise;
+    if (m != null) unawaited(saveShot(focused!, m));
+    _focus(null);
+  }
+
+  Future<void> _rememberRunning() => prefs.setStringList('runningGames', games.keys.toList());
+
+  /// The last picture of a game's screen (shown on its card while it is not running).
+  File shotFile(String id) => File('${library.docs.path}/shots/$id.png');
+  Future<void> saveShot(String id, ParadiseMachine m) async {
+    try {
+      final rgba = Uint8List(128 * 128 * 4);
+      final s = m.screen;
+      for (var i = 0; i < s.length; i++) {
+        final v = s[i];
+        rgba[i * 4] = ((v >> 11) & 31) * 255 ~/ 31;
+        rgba[i * 4 + 1] = ((v >> 5) & 63) * 255 ~/ 63;
+        rgba[i * 4 + 2] = (v & 31) * 255 ~/ 31;
+        rgba[i * 4 + 3] = 255;
+      }
+      if (rgba.every((b) => b == 0 || b == 255) && s.every((v) => v == 0)) return; // asleep, black: keep the last
+      final png = await compute(_png, rgba);
+      final f = shotFile(id);
+      await f.parent.create(recursive: true);
+      await f.writeAsBytes(png, flush: true);
+      shotRevision++;
+      notifyListeners();
+    } catch (err) {
+      debugPrint('shot: $err');
+    }
+  }
+
+  int shotRevision = 0;
+  void shotsChanged() {
+    shotRevision++;
+    notifyListeners();
+  }
+  static Uint8List _png(Uint8List rgba) => img.encodePng(img.Image.fromBytes(width: 128, height: 128, bytes: rgba.buffer, numChannels: 4));
+
+  /// Stops a game for good (saved; it no longer lives in the background).
+  Future<void> stopGame(String id) async {
+    if (id == focused) await unlink();
+    final m = games.remove(id);
+    gameRoms.remove(id);
+    if (m == null) return;
+    await saveShot(id, m);
+    m.dispose();
+    if (focused == id) focused = null;
+    await _rememberRunning();
+    if (games.isEmpty && machine == null) await NativeBridge.keepAlive(false);
+    notifyListeners();
   }
 
   /// Starts [e] as a second console and links it to the game being played. Same ROM: the
@@ -205,19 +302,14 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Stops the game on screen.
   Future<void> stopParadise() async {
-    await unlink();
-    final m = paradise;
-    if (m == null) return;
-    paradise = null;
-    paradiseRom = null;
-    m.dispose();
-    await NativeBridge.keepAlive(false);
-    notifyListeners();
+    final id = focused;
+    if (id != null) await stopGame(id);
   }
 
   Future<void> play(RomEntry e) async {
-    await stopParadise();
+    await showGames();
     await stopToy();
     final bytes = await library.bytes(e);
     final profile = ToyProfile(bytes);
@@ -249,11 +341,16 @@ class AppState extends ChangeNotifier {
   DateTime? _bgAt;
   Future<void> onBackground() async {
     _bgAt = DateTime.now();
-    paradise?.background = true;
+    for (final g in games.entries) {
+      g.value.background = true;
+      g.value.releaseAll();
+      g.value.save();
+      unawaited(saveShot(g.key, g.value));
+      if (!backgroundRun) g.value.pause();
+    }
     partner?.background = true;
-    paradise?.releaseAll();
-    paradise?.save();
-    if (paradise != null && !backgroundRun) paradise!.pause();
+    // the watch gets the latest saves, so it continues where the phone was
+    unawaited(WatchLink.instance.syncAll());
     final m = machine;
     if (m == null) return;
     await m.save();
@@ -263,12 +360,11 @@ class AppState extends ChangeNotifier {
   void onForeground() {
     final away = _bgAt == null ? Duration.zero : DateTime.now().difference(_bgAt!);
     _bgAt = null;
-    final p = paradise;
-    if (p != null) {
-      p.background = false;
-      partner?.background = false;
-      if (!p.running) p.resumeAfter(away);
+    for (final g in games.entries) {
+      g.value.background = g.key != focused;
+      if (!g.value.running) g.value.resumeAfter(away);
     }
+    partner?.background = false;
     final m = machine;
     if (m == null) return;
     if (!m.running && !m.pausedByUser) m.start(); // catches up the time away when keepLiving

@@ -1,12 +1,9 @@
 import 'package:material_ui/material_ui.dart';
 
 import 'services/app_state.dart';
-import 'ui/about_screen.dart';
-import 'ui/device_screen.dart';
-import 'ui/library_screen.dart';
-import 'ui/link_screen.dart';
 import 'ui/play_screen.dart';
 import 'ui/theme.dart';
+import 'ui/tools_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -31,13 +28,17 @@ class TamaApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Tama',
-      debugShowCheckedModeBanner: false,
-      theme: buildTheme(),
-      darkTheme: buildTheme(),
-      themeMode: ThemeMode.dark,
-      home: const Shell(),
+    final app = AppState.instance;
+    return ListenableBuilder(
+      listenable: app,
+      builder: (context, _) => MaterialApp(
+        title: 'Tama',
+        debugShowCheckedModeBanner: false,
+        theme: buildTheme(app.shellTheme),
+        darkTheme: buildTheme(app.shellTheme),
+        themeMode: ThemeMode.dark,
+        home: const Shell(),
+      ),
     );
   }
 }
@@ -87,23 +88,17 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
         _built.add(page);
         Widget lazy(int i, Widget w) => _built.contains(i) ? w : const SizedBox.shrink();
         return Scaffold(
-          body: IndexedStack(index: page, children: [
+          body: IndexedStack(index: page.clamp(0, 1), children: [
             const PlayScreen(),
-            lazy(1, const DeviceScreen()),
-            lazy(2, const LibraryScreen()),
-            lazy(3, const LinkScreen()),
-            lazy(4, const AboutScreen()),
+            lazy(1, const ToolsScreen()),
           ]),
           bottomNavigationBar: NavigationBar(
-            selectedIndex: page,
+            selectedIndex: page.clamp(0, 1),
             onDestinationSelected: (i) => app.page.value = i,
             labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
             destinations: const [
               NavigationDestination(icon: Icon(Icons.egg_outlined), selectedIcon: Icon(Icons.egg), label: 'Play'),
-              NavigationDestination(icon: Icon(Icons.usb), label: 'Paramix'),
-              NavigationDestination(icon: Icon(Icons.auto_fix_high_outlined), label: 'ROMs'),
-              NavigationDestination(icon: Icon(Icons.hub_outlined), label: 'Link'),
-              NavigationDestination(icon: Icon(Icons.tune), label: 'More'),
+              NavigationDestination(icon: Icon(Icons.grid_view_outlined), selectedIcon: Icon(Icons.grid_view_rounded), label: 'Tools'),
             ],
           ),
         );

@@ -47,6 +47,7 @@ final class Console: ObservableObject {
     tama_auto_care(t, g.care ?? 0)
     self.t = t
     playing = g.id
+    UserDefaults.standard.set(g.id, forKey: "lastGame")
     error = nil
     start()
   }

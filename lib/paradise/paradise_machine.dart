@@ -98,7 +98,8 @@ class ParadiseMachine extends ChangeNotifier {
     final done = (want > 0 ? h.run(want, _bg ? 900 : 12) : 0).clamp(0, want > 0 ? want : 0);
     _due -= done;
     if (dt > 0) load = load * 0.9 + 0.1 * (done / (cps * speed * dt)).clamp(0, 1);
-    if (!_bg && h.screen(screen)) {
+    // in the background the screen is still read (once a second): the game cards show it live
+    if (h.screen(screen)) {
       frame++;
       notifyListeners();
     }
@@ -188,6 +189,9 @@ class ParadiseMachine extends ChangeNotifier {
   PetState? pet() => _h?.pet();
   bool care(int what) => _h?.care(what) ?? false;
   Uint8List? block() => _h?.block();
+  bool blockWrite(int offset, List<int> bytes) => _h?.blockWrite(offset, bytes) ?? false;
+  int get consoleSeconds => _h?.seconds ?? 0;
+  (int, int) petPlaces() => _h?.petPlaces() ?? (0x104, 0x7C);
   int _autoCare = 0;
   int get autoCareBits => _autoCare;
   set autoCareBits(int v) {

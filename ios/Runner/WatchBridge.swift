@@ -36,18 +36,21 @@ final class WatchBridge: NSObject, WCSessionDelegate {
         return result(FlutterError(code: "watch", message: "Install Tama on your Apple Watch first (Watch app on the iPhone → Available apps).", details: nil))
       }
       let id = args["id"] as? String ?? ""
-      var meta: [String: Any] = ["id": id, "name": args["name"] as? String ?? id, "key": args["key"] as? NSNumber ?? 0x5AAF34FB, "care": args["care"] as? NSNumber ?? 0]
+      var meta: [String: Any] = ["last": args["last"] as? Bool ?? false, "id": id, "name": args["name"] as? String ?? id, "key": args["key"] as? NSNumber ?? 0x5AAF34FB, "care": args["care"] as? NSNumber ?? 0]
       if (args["sendDump"] as? Bool) ?? true, let dump = args["dump"] as? String {
         meta["kind"] = "dump"
         WCSession.default.transferFile(URL(fileURLWithPath: dump), metadata: meta)
       }
       if let save = args["save"] as? String, FileManager.default.fileExists(atPath: save) {
         // a copy: the save on the phone may change while it travels
-        let tmp = inbox.appendingPathComponent("out-\(id).save")
+        let tmp = inbox.appendingPathComponent("out-\(id)-\(Int(Date().timeIntervalSince1970)).save")
         try? FileManager.default.removeItem(at: tmp)
         try? FileManager.default.copyItem(at: URL(fileURLWithPath: save), to: tmp)
         meta["kind"] = "save"
         meta["savedAt"] = Date().timeIntervalSince1970
+        for t in WCSession.default.outstandingFileTransfers where (t.file.metadata?["id"] as? String) == id && (t.file.metadata?["kind"] as? String) == "save" {
+          t.cancel()
+        }
         WCSession.default.transferFile(tmp, metadata: meta)
       }
       result(nil)

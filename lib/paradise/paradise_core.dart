@@ -45,6 +45,10 @@ typedef _TakeN = Uint32 Function(Pointer<_Tama>, Pointer<Uint8>, Uint32);
 typedef _TakeD = int Function(Pointer<_Tama>, Pointer<Uint8>, int);
 typedef _GiveN = Void Function(Pointer<_Tama>, Pointer<Uint8>, Uint32);
 typedef _GiveD = void Function(Pointer<_Tama>, Pointer<Uint8>, int);
+typedef _BlockWriteN = Int32 Function(Pointer<_Tama>, Uint32, Pointer<Uint8>, Uint32);
+typedef _BlockWriteD = int Function(Pointer<_Tama>, int, Pointer<Uint8>, int);
+typedef _PlacesN = Void Function(Pointer<_Tama>, Pointer<Uint32>);
+typedef _PlacesD = void Function(Pointer<_Tama>, Pointer<Uint32>);
 typedef _KeyN = Int32 Function(Pointer<Utf8>, Uint32, Pointer<Uint32>);
 typedef _KeyD = int Function(Pointer<Utf8>, int, Pointer<Uint32>);
 
@@ -81,6 +85,9 @@ class ParadiseCore {
         _linkTake = l.lookupFunction<_TakeN, _TakeD>('tama_link_take'),
         _linkGive = l.lookupFunction<_GiveN, _GiveD>('tama_link_give'),
         _linkClear = l.lookupFunction<_FreeN, _FreeD>('tama_link_clear'),
+        _blockWrite = l.lookupFunction<_BlockWriteN, _BlockWriteD>('tama_block_write'),
+        _petPlaces = l.lookupFunction<_PlacesN, _PlacesD>('tama_pet_places'),
+        _seconds = l.lookupFunction<_SoundsN, _IntD>('tama_seconds'),
         _pet = l.lookupFunction<_PetN, _PetD>('tama_pet'),
         _care = l.lookupFunction<_ClockCareN, _ClockCareD>('tama_care'),
         _autoCare = l.lookupFunction<_PinN, _PinD>('tama_auto_care'),
@@ -127,6 +134,9 @@ class ParadiseCore {
   final _TakeD _linkTake;
   final _GiveD _linkGive;
   final _FreeD _linkClear;
+  final _BlockWriteD _blockWrite;
+  final _PlacesD _petPlaces;
+  final _IntD _seconds;
   final _PetD _pet;
   final _ClockCareD _care;
   final _PinD _autoCare;
@@ -202,6 +212,31 @@ class ParadiseHandle {
   }
 
   void linkClear() => core._linkClear(_t);
+
+  /// Writes bytes into the game's settings block (memory and save, checksum fixed).
+  bool blockWrite(int offset, List<int> bytes) {
+    final b = calloc<Uint8>(bytes.length);
+    try {
+      b.asTypedList(bytes.length).setAll(0, bytes);
+      return core._blockWrite(_t, offset, b, bytes.length) == 1;
+    } finally {
+      calloc.free(b);
+    }
+  }
+
+  /// The console's seconds counter.
+  int get seconds => core._seconds(_t);
+
+  /// Offsets of the pet's record and of the planet level in the settings block.
+  (int, int) petPlaces() {
+    final o = calloc<Uint32>(2);
+    try {
+      core._petPlaces(_t, o);
+      return (o[0], o[1]);
+    } finally {
+      calloc.free(o);
+    }
+  }
 
   /// Lets go of every key and the dial.
   void releaseAll() => core._releaseAll(_t);

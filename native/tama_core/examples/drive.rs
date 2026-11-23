@@ -51,6 +51,7 @@ fn main() {
                 "d" => { let mut d=[0u32;3]; tama_core::tama_debug(t, d.as_mut_ptr()); println!("pc {:08X} sys300 {:X} watchdog {} running {} sleeping {}", d[0], d[1], d[2], tama_core::tama_running(t), tama_core::tama_sleeping(t)); }
                 "R" => tama_core::tama_reset(t),
                 "U" => { let mut b = vec![0u8; 4096]; let n = tama_core::tama_link_take(t, b.as_mut_ptr(), 4096); println!("uart out {} bytes: {:02X?}", n, &b[..(n as usize).min(48)]); }
+                "W" => { let mut pl = [0u32; 2]; tama_core::tama_pet_places(t, pl.as_mut_ptr()); let v = [3u8, 11u8]; println!("write {}", tama_core::tama_block_write(t, pl[0] + 0x1C, v.as_ptr(), 2)); }
                 "Z" => tama_core::tama_auto_care(t, 7),
                 "F" => println!("care {}", tama_core::tama_care(t, 7)),
                 "D" => { let a1 = CString::new(format!("{}/sram{}.bin", a[2], n)).unwrap(); let a2 = CString::new(format!("{}/flash{}.bin", a[2], n)).unwrap(); tama_core::tama_debug_dump(t, a1.as_ptr(), a2.as_ptr()); n += 1; }

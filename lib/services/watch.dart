@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import '../emu/rom_info.dart';
 import 'app_state.dart';
 import 'rom_library.dart';
 
@@ -46,13 +47,59 @@ class WatchLink {
     if (e.isEmpty) return;
     final f = File(path);
     if (!await f.exists()) return;
-    final playing = app.paradiseRom?.id == id;
-    if (playing) await app.stopParadise();
     final dest = app.library.paradiseSave(e.first);
+    // the newer save wins: the watch's when it was written after the phone's
+    final watchAt = ((m['savedAt'] as num?)?.toDouble() ?? 0) * 1000;
+    final phoneAt = await dest.exists() ? (await dest.lastModified()).millisecondsSinceEpoch.toDouble() : 0.0;
+    if (watchAt > 0 && watchAt < phoneAt - 2000) {
+      await f.delete();
+      return;
+    }
+    final running = app.games.containsKey(id);
+    final focused = app.focused == id;
+    if (running) await app.stopGame(id);
     await dest.parent.create(recursive: true);
     await f.copy(dest.path);
     await f.delete();
-    if (playing) await app.playParadise(e.first);
+    if (running) await app.playParadise(e.first, focus: focused);
+  }
+
+  /// Sends every game you play (its latest save, and the ROM the first time) to the watch, so
+  /// opening Tama there simply continues. Called when the app goes to the background.
+  Future<String?> syncAll() async {
+    if (!available) return 'Only on iPhone.';
+    final app = AppState.instance;
+    try {
+      final st = Map<String, dynamic>.from(await _ch.invokeMethod('status') as Map);
+      if (st['supported'] != true || st['paired'] != true) return 'No Apple Watch is paired with this iPhone.';
+      if (st['installed'] != true) return 'Install Tama on your Apple Watch first (Watch app on the iPhone → Available apps).';
+      final sent = (app.prefs.getStringList('watchSent') ?? const <String>[]).toSet();
+      var n = 0;
+      for (final e in app.library.entries.where((x) => x.kind == RomKind.paradise)) {
+        final save = app.library.paradiseSave(e);
+        if (!await save.exists() || await save.length() == 0) continue; // only games started here
+        app.games[e.id]?.save();
+        final dump = await app.library.romFile(e);
+        await _ch.invokeMethod('send', {
+          'id': e.id,
+          'name': e.name,
+          'key': app.paradiseKey(e) ?? 0x5AAF34FB,
+          'care': app.autoCare(e),
+          'dump': dump.path,
+          'sendDump': !sent.contains(e.id),
+          'save': save.path,
+          'last': app.prefs.getString('lastToy') == e.id,
+        });
+        sent.add(e.id);
+        n++;
+      }
+      await app.prefs.setStringList('watchSent', sent.toList());
+      return n == 0 ? 'Play a game here first: the watch continues games started on the phone.' : null;
+    } on PlatformException catch (err) {
+      return err.message ?? '$err';
+    } catch (err) {
+      return '$err';
+    }
   }
 
   /// Sends a game to the watch; the phone stops playing it (the watch has it now).

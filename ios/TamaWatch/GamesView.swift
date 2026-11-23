@@ -4,12 +4,14 @@ import SwiftUI
 struct GamesView: View {
   @EnvironmentObject var library: WatchLibrary
   @ObservedObject var console = Console.shared
+  @State private var path: [String] = []
+  @State private var opened = false
 
   var body: some View {
-    NavigationStack {
+    NavigationStack(path: $path) {
       List {
         if library.games.isEmpty {
-          Text("Open a game on your iPhone, then ⋯ → Play on Apple Watch.")
+          Text("Play a game on your iPhone: it comes here by itself, with its save, the next time the phone goes to the background.")
             .font(.footnote)
             .foregroundStyle(.secondary)
         }
@@ -23,12 +25,24 @@ struct GamesView: View {
         }
       }
       .navigationTitle("Tama")
+      // straight into the last game: no menus to get it running
+      .onAppear { openLast() }
+      .onChange(of: library.games) { _ in openLast() }
       .navigationDestination(for: String.self) { id in
         if let g = library.games.first(where: { $0.id == id }) {
           GameView(game: g)
         }
       }
     }
+  }
+}
+
+extension GamesView {
+  fileprivate func openLast() {
+    guard !opened, path.isEmpty, let id = UserDefaults.standard.string(forKey: "lastGame"),
+          library.games.contains(where: { $0.id == id }) else { return }
+    opened = true
+    path = [id]
   }
 }
 
