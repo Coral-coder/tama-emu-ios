@@ -64,7 +64,7 @@ class ParadiseMachine extends ChangeNotifier {
       ..start();
     _lastUs = 0;
     _due = 0;
-    _timer = Timer.periodic(Duration(milliseconds: _bg ? 1000 : 16), (_) => _frame());
+    _timer = Timer.periodic(Duration(milliseconds: _bg ? 200 : 16), (_) => _frame());
     notifyListeners();
   }
 
@@ -92,14 +92,26 @@ class ParadiseMachine extends ChangeNotifier {
     _due += cps * speed * dt;
     // at most a quarter of a second behind (two in the background, run once a second): past that
     // the emulation does not race to catch up
-    final cap = (_bg ? 2.0 : 0.25) * cps * speed;
-    if (_due > cap) _due = cap;
+    // Never more than a short slice of work at a time (the screen must stay smooth, also with
+    // other games living in the background). What cannot be run in time is not lost: the
+    // console's clock skips it, as the toy's clock chip keeps counting while it sleeps.
+    final cap = (_bg ? 1.0 : 0.25) * cps * speed;
+    if (_due > cap) {
+      _skipped += (_due - cap) / cps;
+      _due = cap;
+      final whole = _skipped.floor();
+      if (whole > 0) {
+        h.advance(whole);
+        _skipped -= whole;
+      }
+    }
     final want = _due.floor();
-    final done = (want > 0 ? h.run(want, _bg ? 900 : 12) : 0).clamp(0, want > 0 ? want : 0);
+    final done = (want > 0 ? h.run(want, _bg ? 6 : 12) : 0).clamp(0, want > 0 ? want : 0);
     _due -= done;
     if (dt > 0) load = load * 0.9 + 0.1 * (done / (cps * speed * dt)).clamp(0, 1);
-    // in the background the screen is still read (once a second): the game cards show it live
-    if (h.screen(screen)) {
+    // in the background the screen is still read, once a second: the game cards show it live
+    if ((!_bg || now - _shotUs > 1000000) && h.screen(screen)) {
+      _shotUs = now;
       frame++;
       notifyListeners();
     }
@@ -122,13 +134,15 @@ class ParadiseMachine extends ChangeNotifier {
   /// In the background nothing is drawn and the console is run once a second: while it sleeps
   /// (most of the time) the core skips ahead to its next alarm, so little battery goes by.
   bool _bg = false;
+  int _shotUs = 0;
+  double _skipped = 0; // seconds the clock still owes (time that could not be run)
   bool get background => _bg;
   set background(bool v) {
     if (v == _bg) return;
     _bg = v;
     if (_timer != null) {
       _timer!.cancel();
-      _timer = Timer.periodic(Duration(milliseconds: _bg ? 1000 : 16), (_) => _frame());
+      _timer = Timer.periodic(Duration(milliseconds: _bg ? 200 : 16), (_) => _frame());
     }
   }
   bool keepScreenOn = false;

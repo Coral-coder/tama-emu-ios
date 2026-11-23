@@ -460,7 +460,7 @@ class _DialState extends State<Dial> {
       },
       onPointerUp: (_) => _end(),
       onPointerCancel: (_) => _end(),
-      child: CustomPaint(size: Size.square(widget.size), painter: _DialPainter(_angle, _pressed)),
+      child: RepaintBoundary(child: CustomPaint(size: Size.square(widget.size), painter: _DialPainter(_angle, _pressed, AppState.instance.currentTheme))),
     );
   }
 
@@ -481,17 +481,19 @@ class _DialState extends State<Dial> {
 }
 
 class _DialPainter extends CustomPainter {
-  _DialPainter(this.angle, this.pressed);
+  _DialPainter(this.angle, this.pressed, this.theme);
   final double angle;
   final bool pressed;
+  final ShellTheme theme;
 
   @override
   void paint(Canvas canvas, Size size) {
-    paintDial(canvas, size.center(Offset.zero), size.width / 2, AppState.instance.currentTheme, angle, pressed: pressed);
+    paintDial(canvas, size.center(Offset.zero), size.width / 2, theme, angle, pressed: pressed);
   }
 
   @override
-  bool shouldRepaint(_DialPainter o) => true;
+  // only when it turns, is pushed or changes colours (not on every frame of the game)
+  bool shouldRepaint(_DialPainter o) => o.angle != angle || o.pressed != pressed || !identical(o.theme, theme);
 }
 
 class _HoldKey extends StatefulWidget {
