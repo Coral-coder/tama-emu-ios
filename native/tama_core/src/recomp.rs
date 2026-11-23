@@ -60,6 +60,19 @@ enum Op {
     Xfer32 { w1: u16, w2: u16 },
     /// BL
     Bl { target: u32, lr: u32 },
+    /// B.W, B<cond>.W (cond 0xE: always)
+    BW { cond: u16, target: u32 },
+    /// PUSH {list, lr} / POP {list, pc}
+    Push { list: u16, lr: bool },
+    Pop { list: u16, pc: bool },
+    /// CBZ / CBNZ
+    Cbz { nz: bool, rn: u8, target: u32 },
+    /// SXTH / SXTB / UXTH / UXTB
+    Ext { op: u8, rd: u8, rm: u8 },
+    /// SBFX / UBFX / BFI / BFC
+    BitField { w1: u16, w2: u16 },
+    /// TBB / TBH, LDRD / STRD, LDM / STM (32-bit)
+    Multi { w1: u16, w2: u16 },
 }
 
 /// Second operand of a 32-bit data-processing instruction.
@@ -81,7 +94,7 @@ impl Op {
     fn flags(&self) -> u8 {
         match *self {
             Op::Capy { .. } => BR | SIDE,
-            Op::Bcc { .. } | Op::B { .. } | Op::Bl { .. } => BR,
+            Op::Bcc { .. } | Op::B { .. } | Op::Bl { .. } | Op::BW { .. } => BR,
             Op::HiReg { op, rdn, .. } => {
                 if op == 3 || (op != 1 && rdn == 15) { BR } else { 0 }
             }
@@ -93,6 +106,12 @@ impl Op {
             }
             Op::LdStImm { ld: false, .. } | Op::LdStSp { ld: false, .. } | Op::LdStHalf { ld: false, .. } => SIDE,
             Op::LdStReg { op, .. } if op <= 2 => SIDE,
+            Op::Push { .. } => SIDE,
+            Op::Pop { pc, .. } => {
+                if pc { BR } else { 0 }
+            }
+            Op::Cbz { .. } => BR,
+            Op::Multi { .. } => BR | SIDE,
             _ => 0,
         }
     }
@@ -100,7 +119,15 @@ impl Op {
     #[inline(always)]
     fn len(&self) -> u32 {
         match self {
-            Op::Capy { long: true, .. } | Op::MovW { .. } | Op::MovT { .. } | Op::Dp32 { .. } | Op::Xfer32 { .. } | Op::Bl { .. } => 4,
+            Op::Capy { long: true, .. }
+            | Op::MovW { .. }
+            | Op::MovT { .. }
+            | Op::Dp32 { .. }
+            | Op::Xfer32 { .. }
+            | Op::Bl { .. }
+            | Op::BW { .. }
+            | Op::BitField { .. }
+            | Op::Multi { .. } => 4,
             _ => 2,
         }
     }
@@ -111,6 +138,9 @@ struct Block {
     ops: Vec<(Op, u8, u8)>,
     /// The bytes the block was built from (checked again for PRAM, which the firmware fills).
     bytes: Vec<u8>,
+    /// Its first and last 8 bytes (the block spans at least 8: see build)
+    head: u64,
+    tail: u64,
 }
 
 const MAX_OPS: usize = 32;
@@ -203,8 +233,12 @@ impl Recomp {
         if ops.is_empty() {
             return None;
         }
-        let bytes = Self::code_bytes(m, pc, len)?.to_vec();
-        Some(Block { ops, bytes })
+        // at least 8 bytes are kept, so the quick check has two whole words to look at
+        let keep = len.max(8);
+        let bytes = Self::code_bytes(m, pc, keep)?.to_vec();
+        let head = u64::from_le_bytes(bytes[..8].try_into().unwrap());
+        let tail = u64::from_le_bytes(bytes[keep - 8..].try_into().unwrap());
+        Some(Block { ops, bytes, head, tail })
     }
 
     /// The native form of an instruction at `at`, or Capybara's executor.
@@ -236,8 +270,37 @@ impl Recomp {
                         src: Src::Reg { rm: (w2 & 0xF) as u8, amount, kind: ((w2 >> 4) & 3) as u32 },
                     };
                 }
-                0xE8 | 0xE9 => return capy,
+                0xE8 | 0xE9 => {
+                    // the forms Capybara knows; anything else stays with Capybara (undefined)
+                    let tb = (w1 & 0xFFF0) == 0xE8D0 && (w2 & 0xFFE0) == 0xF000;
+                    let dual = (w1 & 0xFE40) == 0xE840 && (((w1 >> 8) & 1) != 0 || ((w1 >> 5) & 1) != 0);
+                    let many = (w1 & 0xFE40) == 0xE800 && matches!((w1 >> 7) & 3, 1 | 2);
+                    return if tb || dual || many { Op::Multi { w1, w2 } } else { capy };
+                }
                 _ => {}
+            }
+            // B.W (T4) and B<cond>.W (T3), as Capybara's 1b and 1c
+            if (w1 & 0xF800) == 0xF000 && (w2 & 0xD000) == 0x9000 {
+                let s = ((w1 >> 10) & 1) as u32;
+                let j1 = ((w2 >> 13) & 1) as u32;
+                let j2 = ((w2 >> 11) & 1) as u32;
+                let i1 = !(j1 ^ s) & 1;
+                let i2 = !(j2 ^ s) & 1;
+                let mut imm25 = (s << 24) | (i1 << 23) | (i2 << 22) | (((w1 & 0x3FF) as u32) << 12) | (((w2 & 0x7FF) as u32) << 1);
+                if (imm25 & 0x0100_0000) != 0 {
+                    imm25 |= 0xFE00_0000;
+                }
+                return Op::BW { cond: 0xE, target: (at.wrapping_add(4) as i32).wrapping_add(imm25 as i32) as u32 };
+            }
+            if (w1 & 0xF800) == 0xF000 && (w2 & 0xD000) == 0x8000 && ((w1 >> 6) & 0xF) < 0xE {
+                let s = ((w1 >> 10) & 1) as u32;
+                let j1 = ((w2 >> 13) & 1) as u32;
+                let j2 = ((w2 >> 11) & 1) as u32;
+                let mut imm21 = (s << 20) | (j2 << 19) | (j1 << 18) | (((w1 & 0x3F) as u32) << 12) | (((w2 & 0x7FF) as u32) << 1);
+                if (imm21 & 0x0010_0000) != 0 {
+                    imm21 |= 0xFFE0_0000;
+                }
+                return Op::BW { cond: (w1 >> 6) & 0xF, target: (at.wrapping_add(4) as i32).wrapping_add(imm21 as i32) as u32 };
             }
             if (w1 & 0xF800) == 0xF000 && (w2 & 0xD000) == 0xD000 {
                 let s = ((w1 >> 10) & 1) as u32;
@@ -251,6 +314,14 @@ impl Recomp {
                 }
                 let ret = at.wrapping_add(4);
                 return Op::Bl { target: (ret as i32).wrapping_add(imm25 as i32) as u32, lr: ret | 1 };
+            }
+            // bit fields (after the branch forms, MOVW/MOVT, hints and ADDW/SUBW, as in Capybara;
+            // w2 bit 15 set is a branch, which comes first there)
+            if ((w1 & 0xFBF0) == 0xF340 || (w1 & 0xFBF0) == 0xF360 || (w1 & 0xFBF0) == 0xF3C0) && (w2 & 0x8000) == 0 {
+                if (w1 & 0x00F0) == 0x0060 && ((w2 & 0x1F) as u32) < ((((w2 >> 12) & 7) << 2) | ((w2 >> 6) & 3)) as u32 {
+                    return capy;
+                }
+                return Op::BitField { w1, w2 };
             }
             // (branches, MOVW/MOVT, hints, ADDW/SUBW, multiplies, bit fields... come first in
             // Capybara; none of them has w1 & 0xFA00 == 0xF000 with w2 bit 15 clear)
@@ -326,6 +397,15 @@ impl Recomp {
                 if (w & 0x0800) != 0 { Op::AddSp { rd, imm } } else { Op::Const1 { rd, val: ((at + 4) & !3) + imm } }
             }
             0xB if (w & 0xFF00) == 0xB000 => Op::AdjSp { sub: (w & 0x0080) != 0, imm: ((w & 0x7F) as u32) * 4 },
+            0xB if (w & 0xF500) == 0xB100 => {
+                let i = ((w >> 9) & 1) as u32;
+                let imm5 = ((w >> 3) & 0x1F) as u32;
+                // taken: pc (address + 2 here) + 2 + imm
+                Op::Cbz { nz: (w & 0x0800) != 0, rn: (w & 7) as u8, target: at.wrapping_add(4).wrapping_add((i << 6) | (imm5 << 1)) }
+            }
+            0xB if (w & 0xFF00) == 0xB200 => Op::Ext { op: ((w >> 6) & 3) as u8, rd: (w & 7) as u8, rm: ((w >> 3) & 7) as u8 },
+            0xB if (w & 0xFE00) == 0xB400 => Op::Push { list: w & 0xFF, lr: (w & 0x0100) != 0 },
+            0xB if (w & 0xFE00) == 0xBC00 => Op::Pop { list: w & 0xFF, pc: (w & 0x0100) != 0 },
             0xB if (w & 0xFF0F) == 0xBF00 => Op::Nop,
             0xD if ((w >> 8) & 0xF) < 0xE => {
                 let imm8 = (w & 0xFF) as i8 as i32;
@@ -725,6 +805,94 @@ impl Recomp {
                 r.pc = target;
                 3
             }
+            Op::BW { cond, target } => {
+                if cond == 0xE {
+                    r.pc = target;
+                    3
+                } else if Thumb16::eval_condition(cond, r) {
+                    r.pc = target;
+                    3
+                } else {
+                    1
+                }
+            }
+            Op::Push { list, lr } => {
+                let mut sp = r.get_sp();
+                let lrv = r.lr;
+                let vals = r.r;
+                let (bus, periph, nvic) = (&mut m.bus, &mut m.periph, &mut m.cpu.nvic);
+                if lr {
+                    sp = sp.wrapping_sub(4);
+                    bus.write_u32(sp, lrv, periph, nvic);
+                }
+                for i in (0..8).rev() {
+                    if (list & (1 << i)) != 0 {
+                        sp = sp.wrapping_sub(4);
+                        bus.write_u32(sp, vals[i], periph, nvic);
+                    }
+                }
+                m.cpu.regs.set_sp(sp);
+                2
+            }
+            Op::Pop { list, pc } => {
+                let mut sp = r.get_sp();
+                for i in 0..8 {
+                    if (list & (1 << i)) != 0 {
+                        let v = m.bus.read_u32(sp, &mut m.periph, &m.cpu.nvic);
+                        m.cpu.regs.r[i] = v;
+                        sp = sp.wrapping_add(4);
+                    }
+                }
+                if pc {
+                    let v = m.bus.read_u32(sp, &mut m.periph, &m.cpu.nvic);
+                    m.cpu.regs.pc = v & !1;
+                    sp = sp.wrapping_add(4);
+                }
+                m.cpu.regs.set_sp(sp);
+                2
+            }
+            Op::Cbz { nz, rn, target } => {
+                let v = r.r[rn as usize];
+                if (nz && v != 0) || (!nz && v == 0) {
+                    r.pc = target;
+                    2
+                } else {
+                    1
+                }
+            }
+            Op::Ext { op, rd, rm } => {
+                let v = r.r[rm as usize];
+                r.r[rd as usize] = match op {
+                    0 => (v as i16 as i32) as u32,
+                    1 => (v as i8 as i32) as u32,
+                    2 => v & 0xFFFF,
+                    _ => v & 0xFF,
+                };
+                1
+            }
+            Op::BitField { w1, w2 } => {
+                let rn = (w1 & 0xF) as u8;
+                let rd = ((w2 >> 8) & 0xF) as u8;
+                let lsb = ((((w2 >> 12) & 7) << 2) | ((w2 >> 6) & 3)) as u32;
+                if (w1 & 0x00F0) == 0x0060 {
+                    let msb = (w2 & 0x1F) as u32;
+                    let width = msb - lsb + 1;
+                    let mask = ((((1u64 << width) - 1) << lsb) & 0xFFFF_FFFF) as u32;
+                    let cur = r.get_reg(rd);
+                    let ins = if rn == 0xF { 0 } else { r.get_reg(rn) << lsb };
+                    r.set_reg(rd, (cur & !mask) | (ins & mask));
+                } else {
+                    let width = ((w2 & 0x1F) as u32) + 1;
+                    let mask = (((1u64 << width) - 1) & 0xFFFF_FFFF) as u32;
+                    let mut res = (r.get_reg(rn) >> lsb) & mask;
+                    if (w1 & 0x00F0) == 0x0040 && width < 32 && (res & (1 << (width - 1))) != 0 {
+                        res |= !mask;
+                    }
+                    r.set_reg(rd, res);
+                }
+                1
+            }
+            Op::Multi { w1, w2 } => multi(w1, w2, m),
             Op::Capy { .. } => 0,
         }
     }
@@ -753,11 +921,10 @@ impl Recomp {
                 // PRAM: the firmware may have written new code here
                 // (the first and last bytes: code copied over a block changes them)
                 let b = &self.blocks[ix as usize - 1];
-                let n = b.bytes.len();
-                let k = n.min(8);
                 let p = &m.bus.pram.data;
                 let at = pc as usize;
-                if p.get(at..at + k) != Some(&b.bytes[..k]) || p.get(at + n - k..at + n) != Some(&b.bytes[n - k..]) {
+                let word = |o: usize| p.get(o..o + 8).map(|x| u64::from_le_bytes(x.try_into().unwrap()));
+                if word(at) != Some(b.head) || word(at + b.bytes.len() - 8) != Some(b.tail) {
                     ix = 0;
                 }
             }
@@ -960,4 +1127,79 @@ fn shift_c(rm: u32, shift: u32, kind: u32, carry_in: bool) -> (u32, bool) {
 #[inline(always)]
 fn nzcv(r: &mut crate::emulator::cpu::registers::Registers, res: u32, c: bool, v: bool) {
     r.xpsr = (r.xpsr & 0x0FFF_FFFF) | (res & 0x8000_0000) | (((res == 0) as u32) << 30) | ((c as u32) << 29) | ((v as u32) << 28);
+}
+
+/// TBB / TBH, LDRD / STRD and LDM / STM (32-bit), as Capybara's exec_acces_multiple.
+fn multi(w1: u16, w2: u16, m: &mut Machine) -> u32 {
+    let (regs, bus, periph, nvic) = (&mut m.cpu.regs, &mut m.bus, &mut m.periph, &mut m.cpu.nvic);
+    if (w1 & 0xFFF0) == 0xE8D0 && (w2 & 0xFFE0) == 0xF000 {
+        let is_tbh = (w2 & 0x0010) != 0;
+        let rn = (w1 & 0xF) as u8;
+        let base = if rn == 0xF { regs.pc } else { regs.get_reg(rn) };
+        let rmv = regs.get_reg((w2 & 0xF) as u8);
+        let off = if is_tbh {
+            bus.read_u16(base.wrapping_add(rmv << 1), periph, nvic) as u32
+        } else {
+            bus.read_u8(base.wrapping_add(rmv), periph, nvic) as u32
+        };
+        regs.pc = regs.pc.wrapping_add(off << 1);
+        return 2;
+    }
+    if (w1 & 0xFE40) == 0xE840 {
+        let p = (w1 >> 8) & 1;
+        let u = (w1 >> 7) & 1;
+        let wb = (w1 >> 5) & 1;
+        let load = (w1 >> 4) & 1 != 0;
+        let rn = (w1 & 0xF) as u8;
+        let rt = ((w2 >> 12) & 0xF) as u8;
+        let rt2 = ((w2 >> 8) & 0xF) as u8;
+        let imm = ((w2 & 0xFF) as u32) << 2;
+        let base = regs.get_reg(rn);
+        let off = if u != 0 { base.wrapping_add(imm) } else { base.wrapping_sub(imm) };
+        let addr = if p != 0 { off } else { base };
+        if load {
+            let a = bus.read_u32(addr, periph, nvic);
+            let b = bus.read_u32(addr.wrapping_add(4), periph, nvic);
+            regs.set_reg(rt, a);
+            regs.set_reg(rt2, b);
+        } else {
+            let (a, b) = (regs.get_reg(rt), regs.get_reg(rt2));
+            bus.write_u32(addr, a, periph, nvic);
+            bus.write_u32(addr.wrapping_add(4), b, periph, nvic);
+        }
+        if wb != 0 {
+            regs.set_reg(rn, off);
+        }
+        return 3;
+    }
+    let db = ((w1 >> 7) & 3) == 2;
+    let ldm = (w1 & 0x0010) != 0;
+    let wb = (w1 & 0x0020) != 0;
+    let rn = (w1 & 0xF) as u8;
+    let list = w2;
+    let count = list.count_ones();
+    let base = regs.get_reg(rn);
+    let start = if db { base.wrapping_sub(4 * count) } else { base };
+    let mut addr = start;
+    for i in 0..16 {
+        if (list & (1 << i)) == 0 {
+            continue;
+        }
+        if ldm {
+            let v = bus.read_u32(addr, periph, nvic);
+            if i == 15 {
+                regs.pc = v & !1;
+            } else {
+                regs.set_reg(i as u8, v);
+            }
+        } else {
+            let v = regs.get_reg(i as u8);
+            bus.write_u32(addr, v, periph, nvic);
+        }
+        addr = addr.wrapping_add(4);
+    }
+    if wb {
+        regs.set_reg(rn, if db { start } else { base.wrapping_add(4 * count) });
+    }
+    3
 }

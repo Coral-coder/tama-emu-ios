@@ -46,5 +46,9 @@ and frame rate (iPhone, Apple Watch, Android), without changing what the game do
    examples/recomp_verify.rs runs each native op against Capybara from the same state:
    0 differences over 60 M instructions on Water, Neon, Tropical. 1.80-1.82x the
    interpreter on Water, Glacier, Jade; Neon's 4-minute sleep/wake trace is unchanged.
-3. Lockstep tester on all editions; fix until it matches for minutes of play.
+2b. More native forms (PUSH/POP, CBZ/CBNZ, extends, bit fields, TBB/TBH, LDRD/STRD, LDM/STM,
+   B.W and B<cond>.W): 96 % native; PRAM blocks checked by two 64-bit words. 1.91-1.96x the
+   interpreter on Water, Neon, Tropical, Sky; recomp_verify 0 differences.
+3. Lockstep tester on all editions; fix until it matches for minutes of play (done for the
+   editions above; keep running it when adding forms).
 4. Switch the app's core to it (phone, watch, Android), measure battery and frame rate.
