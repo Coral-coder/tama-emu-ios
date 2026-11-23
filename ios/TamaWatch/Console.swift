@@ -12,16 +12,29 @@ final class Console: ObservableObject {
   @Published var error: String?
 
   private var t: OpaquePointer?
-  private var timer: Timer?
+  // The console runs on a thread of its own, flat out (the watch's processor is the limit), and
+  // the screen gets finished pictures; every call into the core goes through this lock.
+  private let core = NSLock()
+  private let emu = DispatchQueue(label: "tama.watch.emu", qos: .userInteractive)
+  private var looping = false
   private var due: Double = 0
+  private var owed: Double = 0  // seconds the clock still owes (time that could not be run)
   private var last = Date()
   private var lastSave = Date()
+  private var lastPicture = Date.distantPast
   private var awayAt: Date?
   private var quietSince = Date.distantPast
   private let fb = UnsafeMutablePointer<UInt16>.allocate(capacity: 128 * 128)
   private var rgba = [UInt8](repeating: 255, count: 128 * 128 * 4)
   private let tone = WatchTone()
   private let cps = Double(tama_cycles_per_second())
+
+  private func withCore<R>(_ f: (OpaquePointer) -> R) -> R? {
+    core.lock()
+    defer { core.unlock() }
+    guard let t = t else { return nil }
+    return f(t)
+  }
 
   static let pinA: UInt32 = 0x09, pinB: UInt32 = 0x0B, pinC: UInt32 = 0x0A, pinWheel: UInt32 = 0x08
   static let enc1: UInt32 = 0x20, enc2: UInt32 = 0x21
@@ -45,7 +58,9 @@ final class Console: ObservableObject {
     tama_sync_clock(t, Console.localSeconds())
     tama_auto_date(t, 180)
     tama_auto_care(t, g.care ?? 0)
+    core.lock()
     self.t = t
+    core.unlock()
     playing = g.id
     UserDefaults.standard.set(g.id, forKey: "lastGame")
     error = nil
@@ -60,25 +75,110 @@ final class Console: ObservableObject {
   }
 
   private func start() {
-    guard timer == nil, t != nil else { return }
+    guard !looping, t != nil else { return }
+    looping = true
     last = Date()
     due = 0
-    timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in self?.frame() }
+    emu.async { [weak self] in self?.loop() }
   }
 
   private func pause() {
-    timer?.invalidate()
-    timer = nil
+    looping = false
+    emu.sync {}  // the loop has stopped
     tone.set(0)
+  }
+
+  private func loop() {
+    while looping {
+      let behind = step()
+      if !behind { Thread.sleep(forTimeInterval: 0.004) }
+    }
+  }
+
+  /// One slice of the console. True when it is behind real time (run again at once).
+  private func step() -> Bool {
+    core.lock()
+    guard let t = t else {
+      core.unlock()
+      return false
+    }
+    let now = Date()
+    var dt = now.timeIntervalSince(last)
+    last = now
+    if dt > 2 {
+      tama_advance(t, UInt32(dt))
+      dt -= floor(dt)
+    }
+    due += cps * dt
+    // what the watch cannot run in time is skipped by the clock (the pet's time stays right)
+    let cap = cps * 0.25
+    if due > cap {
+      owed += (due - cap) / cps
+      due = cap
+      if owed >= 1 {
+        tama_advance(t, UInt32(owed))
+        owed -= floor(owed)
+      }
+    }
+    let want = UInt64(max(0, due))
+    let done = want > 0 ? tama_run(t, want, 30) : 0
+    due -= Double(done)
+    let changed = tama_screen(t, fb) != 0
+    let note = tama_note(t)
+    let stopped = tama_running(t) == 0
+    core.unlock()
+
+    let ratio = dt > 0 ? min(1, Double(done) / (cps * dt)) : 1
+    // the picture, at most 20 times a second
+    if changed && now.timeIntervalSince(lastPicture) > 0.05 {
+      lastPicture = now
+      let img = picture()
+      DispatchQueue.main.async { [weak self] in
+        self?.image = img
+        self?.speed = (self?.speed ?? 0) * 0.8 + 0.2 * ratio
+      }
+    }
+    tone.set(note)
+    if note > 0 {
+      if now.timeIntervalSince(quietSince) > 3 { DispatchQueue.main.async { WKInterfaceDevice.current().play(.notification) } }
+      quietSince = .distantFuture
+    } else if quietSince == .distantFuture {
+      quietSince = now
+    }
+    if now.timeIntervalSince(lastSave) > 60 {
+      lastSave = now
+      DispatchQueue.main.async { [weak self] in self?.saveNow(send: false) }
+    }
+    if stopped {
+      looping = false
+      DispatchQueue.main.async { [weak self] in self?.error = "The console stopped." }
+    }
+    return due > cps * 0.02
+  }
+
+  private func picture() -> CGImage? {
+    for i in 0..<(128 * 128) {
+      let v = fb[i]
+      rgba[i * 4] = UInt8((Int(v >> 11) & 31) * 255 / 31)
+      rgba[i * 4 + 1] = UInt8((Int(v >> 5) & 63) * 255 / 63)
+      rgba[i * 4 + 2] = UInt8((Int(v) & 31) * 255 / 31)
+    }
+    let data = Data(rgba) as CFData
+    guard let provider = CGDataProvider(data: data) else { return nil }
+    return CGImage(width: 128, height: 128, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: 128 * 4,
+                   space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
+                   provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
   }
 
   /// Leaves the game: saved here and sent to the phone.
   func stop() {
     pause()
-    guard let t = t else { return }
+    guard t != nil else { return }
     saveNow(send: true)
-    tama_free(t)
-    self.t = nil
+    core.lock()
+    if let t = t { tama_free(t) }
+    t = nil
+    core.unlock()
     playing = nil
     image = nil
   }
@@ -86,11 +186,11 @@ final class Console: ObservableObject {
   /// The watch app goes to the background (wrist down) or comes back: the save goes to the phone,
   /// and on return the console's clock catches up with the time away.
   func scene(active: Bool) {
-    guard let t = t else { return }
+    guard t != nil else { return }
     if active {
       if let a = awayAt {
         let s = Date().timeIntervalSince(a)
-        if s > 2 { tama_advance(t, UInt32(min(s, Double(UInt32.max)))) }
+        if s > 2 { _ = withCore { tama_advance($0, UInt32(min(s, Double(UInt32.max)))) } }
       }
       awayAt = nil
       start()
@@ -102,56 +202,10 @@ final class Console: ObservableObject {
     }
   }
 
-  private func frame() {
-    guard let t = t else { return }
-    let now = Date()
-    var dt = now.timeIntervalSince(last)
-    last = now
-    if dt > 2 {
-      tama_advance(t, UInt32(dt))
-      dt -= floor(dt)
-    }
-    due += cps * dt
-    if due > cps * 0.25 { due = cps * 0.25 }
-    let want = UInt64(max(0, due))
-    let done = want > 0 ? tama_run(t, want, 22) : 0
-    due -= Double(done)
-    if dt > 0 { speed = speed * 0.9 + 0.1 * min(1, Double(done) / (cps * dt)) }
-    if tama_screen(t, fb) != 0 { draw() }
-    let note = tama_note(t)
-    tone.set(note)
-    // every sound taps the wrist (one tap per melody: after 3 s of quiet)
-    if note > 0 {
-      if now.timeIntervalSince(quietSince) > 3 { WKInterfaceDevice.current().play(.notification) }
-      quietSince = .distantFuture
-    } else if quietSince == .distantFuture {
-      quietSince = now
-    }
-    if now.timeIntervalSince(lastSave) > 60 { saveNow(send: false) }
-    if tama_running(t) == 0 {
-      error = "The console stopped."
-      pause()
-    }
-  }
-
-  private func draw() {
-    for i in 0..<(128 * 128) {
-      let v = fb[i]
-      rgba[i * 4] = UInt8((Int(v >> 11) & 31) * 255 / 31)
-      rgba[i * 4 + 1] = UInt8((Int(v >> 5) & 63) * 255 / 63)
-      rgba[i * 4 + 2] = UInt8((Int(v) & 31) * 255 / 31)
-    }
-    let data = Data(rgba) as CFData
-    guard let provider = CGDataProvider(data: data) else { return }
-    image = CGImage(width: 128, height: 128, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: 128 * 4,
-                    space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
-                    provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
-  }
-
   private func saveNow(send: Bool) {
-    guard let t = t, let id = playing else { return }
+    guard let id = playing else { return }
     lastSave = Date()
-    if tama_write_save(t) >= 0, var g = WatchLibrary.shared.game(id) {
+    if (withCore { tama_write_save($0) } ?? -1) >= 0, var g = WatchLibrary.shared.game(id) {
       g.savedAt = Date().timeIntervalSince1970
       WatchLibrary.shared.store(g)
       if send { PhoneLink.shared.sendSave(g) }
@@ -159,41 +213,35 @@ final class Console: ObservableObject {
   }
 
   func press(_ pin: UInt32) {
-    guard let t = t else { return }
     WKInterfaceDevice.current().play(.click)
-    tama_press(t, pin)
+    _ = withCore { tama_press($0, pin) }
   }
 
   func release(_ pin: UInt32) {
-    guard let t = t else { return }
-    tama_release(t, pin)
+    _ = withCore { tama_release($0, pin) }
   }
 
   /// Feeds (1), plays (2), cures (4). False: no pet found.
   func care(_ what: UInt32) -> Bool {
-    guard let t = t else { return false }
-    return tama_care(t, what) == 1
+    return withCore { tama_care($0, what) } == 1
   }
 
   /// The reset button on the back of the toy (the save stays).
   func reset() {
-    guard let t = t else { return }
     saveNow(send: false)
-    tama_reset(t)
-    if tama_sync_clock(t, Console.localSeconds()) > 0 { tama_auto_date(t, 180) }
+    _ = withCore { t -> Void in
+      tama_reset(t)
+      if tama_sync_clock(t, Console.localSeconds()) > 0 { tama_auto_date(t, 180) }
+    }
   }
 
   func releaseAll() {
-    guard let t = t else { return }
-    tama_release_all(t)
+    _ = withCore { tama_release_all($0) }
   }
 
   /// One detent of the crown: a step of the wheel, played by the core in console time.
   func turn(_ right: Bool) {
-    DispatchQueue.main.async { [weak self] in
-      guard let t = self?.t else { return }
-      tama_turn(t, right ? 1 : 0)
-    }
+    _ = withCore { tama_turn($0, right ? 1 : 0) }
   }
 }
 

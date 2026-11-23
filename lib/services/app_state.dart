@@ -118,13 +118,14 @@ class AppState extends ChangeNotifier {
   }
   bool ghostDots = true;
   Upscale upscale = Upscale.scale2x;
-  ScreenFilter filter = ScreenFilter.none;
+  /// The screen filters, in the order they are applied (they stack).
+  List<ScreenFilter> filters = [];
 
-  Future<void> setLook({Upscale? upscale, ScreenFilter? filter}) async {
+  Future<void> setLook({Upscale? upscale, List<ScreenFilter>? filters}) async {
     if (upscale != null) this.upscale = upscale;
-    if (filter != null) this.filter = filter;
+    if (filters != null) this.filters = filters.where((f) => f != ScreenFilter.none).toList();
     await prefs.setString('upscale', this.upscale.name);
-    await prefs.setString('filter', this.filter.name);
+    await prefs.setStringList('filters', [for (final f in this.filters) f.name]);
     notifyListeners();
   }
 
@@ -144,7 +145,8 @@ class AppState extends ChangeNotifier {
     shellTheme = ShellTheme.decode(prefs.getString('shellTheme')) ?? ShellTheme.presets.first;
     ghostDots = prefs.getBool('ghostDots') ?? true;
     upscale = Upscale.values.asNameMap()[prefs.getString('upscale')] ?? Upscale.scale2x;
-    filter = ScreenFilter.values.asNameMap()[prefs.getString('filter')] ?? ScreenFilter.none;
+    final names = prefs.getStringList('filters') ?? [if (prefs.getString('filter') != null) prefs.getString('filter')!];
+    filters = [for (final n in names) if (ScreenFilter.values.asNameMap()[n] case final f? when f != ScreenFilter.none) f];
     NativeBridge.volume = prefs.getDouble('volume') ?? 0.35;
     tunnel.myName = prefs.getString('myName') ?? 'Tama';
     await library.init();

@@ -6,6 +6,8 @@ enum Upscale {
   smooth('Smooth'),
   scale2x('Scale2x'),
   scale4x('Scale4x'),
+  scale6x('Scale6x'),
+  scale8x('Scale8x'),
   hq('Scale2x + smooth');
 
   const Upscale(this.label);
@@ -60,6 +62,43 @@ Frame scale2x(Frame f) {
     }
   }
   return Frame(out.buffer.asUint8List(), ow, h * 2);
+}
+
+/// Scale3x (AdvMAME3x): triples the picture, keeping edges crisp.
+Frame scale3x(Frame f) {
+  final w = f.w, h = f.h, s = Uint32List.view(f.rgba.buffer, f.rgba.offsetInBytes, w * h);
+  final ow = w * 3;
+  final out = Uint32List(w * h * 9);
+  int at(int x, int y) => s[(y < 0 ? 0 : (y >= h ? h - 1 : y)) * w + (x < 0 ? 0 : (x >= w ? w - 1 : x))];
+  for (var y = 0; y < h; y++) {
+    for (var x = 0; x < w; x++) {
+      final a = at(x - 1, y - 1), b = at(x, y - 1), c = at(x + 1, y - 1);
+      final d = at(x - 1, y), e = s[y * w + x], ff = at(x + 1, y);
+      final g = at(x - 1, y + 1), hh = at(x, y + 1), i = at(x + 1, y + 1);
+      var e0 = e, e1 = e, e2 = e, e3 = e, e5 = e, e6 = e, e7 = e, e8 = e;
+      if (b != hh && d != ff) {
+        e0 = d == b ? d : e;
+        e1 = (d == b && e != c) || (b == ff && e != a) ? b : e;
+        e2 = b == ff ? ff : e;
+        e3 = (d == b && e != g) || (d == hh && e != a) ? d : e;
+        e5 = (b == ff && e != i) || (hh == ff && e != c) ? ff : e;
+        e6 = d == hh ? d : e;
+        e7 = (d == hh && e != i) || (hh == ff && e != g) ? hh : e;
+        e8 = hh == ff ? ff : e;
+      }
+      final o = (y * 3) * ow + x * 3;
+      out[o] = e0;
+      out[o + 1] = e1;
+      out[o + 2] = e2;
+      out[o + ow] = e3;
+      out[o + ow + 1] = e;
+      out[o + ow + 2] = e5;
+      out[o + 2 * ow] = e6;
+      out[o + 2 * ow + 1] = e7;
+      out[o + 2 * ow + 2] = e8;
+    }
+  }
+  return Frame(out.buffer.asUint8List(), ow, h * 3);
 }
 
 int _clamp(double v) => v < 0 ? 0 : (v > 255 ? 255 : v.round());
@@ -123,11 +162,29 @@ void colourFilter(Frame f, ScreenFilter k) {
   }
 }
 
-/// The screen as it is shown: upscaled, then coloured.
-Frame processFrame(Uint8List rgba128, Upscale up, ScreenFilter filter) {
+/// Filters that are drawn over the picture (the others change its colours).
+bool isOverlay(ScreenFilter f) => f == ScreenFilter.lcd || f == ScreenFilter.scanlines || f == ScreenFilter.crt;
+
+/// The screen as it is shown: coloured by every chosen filter in turn (they stack), then upscaled.
+/// Colouring first is 64 times less work at 8x.
+Frame processFrame(Uint8List rgba128, Upscale up, List<ScreenFilter> filters) {
   var f = Frame(Uint8List.fromList(rgba128), 128, 128);
-  if (up == Upscale.scale2x || up == Upscale.hq) f = scale2x(f);
-  if (up == Upscale.scale4x) f = scale2x(scale2x(f));
-  colourFilter(f, filter);
+  for (final k in filters) {
+    colourFilter(f, k);
+  }
+  switch (up) {
+    case Upscale.scale2x:
+    case Upscale.hq:
+      f = scale2x(f);
+    case Upscale.scale4x:
+      f = scale2x(scale2x(f));
+    case Upscale.scale6x:
+      f = scale2x(scale3x(f));
+    case Upscale.scale8x:
+      f = scale2x(scale2x(scale2x(f)));
+    case Upscale.pixel:
+    case Upscale.smooth:
+      break;
+  }
   return f;
 }

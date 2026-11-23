@@ -18,6 +18,7 @@ class ParadiseScreen extends StatefulWidget {
 
 class _ParadiseScreenState extends State<ParadiseScreen> {
   ui.Image? _img;
+  bool _decoding = false;
   int _shown = -1;
   final Uint8List _rgba = Uint8List(128 * 128 * 4);
 
@@ -49,6 +50,7 @@ class _ParadiseScreenState extends State<ParadiseScreen> {
   void _onFrame() {
     final m = widget.machine;
     if (m.frame == _shown) return;
+    if (_decoding) return; // big upscales: one picture at a time, the next tick takes the newest
     _shown = m.frame;
     final s = m.screen;
     for (var i = 0; i < s.length; i++) {
@@ -59,8 +61,10 @@ class _ParadiseScreenState extends State<ParadiseScreen> {
       _rgba[i * 4 + 3] = 255;
     }
     final app = AppState.instance;
-    final f = processFrame(_rgba, app.upscale, app.filter);
+    final f = processFrame(_rgba, app.upscale, app.filters);
+    _decoding = true;
     ui.decodeImageFromPixels(f.rgba, f.w, f.h, ui.PixelFormat.rgba8888, (im) {
+      _decoding = false;
       if (!mounted) return;
       setState(() {
         _img?.dispose();
