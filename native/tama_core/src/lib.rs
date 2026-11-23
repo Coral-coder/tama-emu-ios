@@ -11,6 +11,7 @@
 pub mod emulator;
 #[path = "../../../third_party/capybara/src/touches.rs"]
 pub mod touches;
+pub mod recomp;
 
 use std::ffi::{c_char, CStr};
 use std::path::PathBuf;
@@ -28,6 +29,9 @@ pub struct Tama {
     lecture_broche: Option<u32>,
     lecture_cherchee: u64,
     attentes_sautees: u64,
+    recomp: recomp::Recomp,
+    /// Off: Capybara's interpreter alone (for comparisons).
+    pub recomp_on: bool,
     // sound, followed as Capybara does: the voice table is looked up at the start of every sound
     son_jouait: bool,
     derniere_recherche: u64,
@@ -71,6 +75,8 @@ pub extern "C" fn tama_new() -> *mut Tama {
         lecture_broche: None,
         lecture_cherchee: 0,
         attentes_sautees: 0,
+        recomp: recomp::Recomp::default(),
+        recomp_on: false, // stage 1 is not faster yet (docs/recompiler.md)
         son_jouait: false,
         derniere_recherche: 0,
         note_perimee: 0.0,
@@ -209,6 +215,32 @@ pub unsafe extern "C" fn tama_run(t: *mut Tama, cycles: u64, budget_ms: u32) -> 
     done
 }
 
+/// What Capybara's core does with the cycles of its instructions (entretenir_peripheriques).
+fn entretenir(m: &mut Machine, e: u32) {
+    use emulator::peripherals::{adc_pile, gpio_port};
+    let c = &mut m.cpu;
+    let p = &mut m.periph;
+    c.nvic.tick_systick(e);
+    if p.port1.tick(e) {
+        c.nvic.request_irq(gpio_port::PORT1_IRQ);
+    }
+    if let Some(irq) = p.tic.tick(e) {
+        c.nvic.request_irq(irq);
+    }
+    if p.adc_pile.irq_a_lever | p.adc_pile.tick(e) {
+        p.adc_pile.irq_a_lever = false;
+        c.nvic.request_irq(adc_pile::IRQ);
+    }
+    if p.timers.tick(e) {
+        c.nvic.request_irq(16);
+    }
+    p.uart.tick(e, CYCLES_PAR_SECONDE as u32);
+    if p.uart.irq_pending {
+        c.nvic.request_irq(37);
+    }
+    p.snsys.tick(e);
+}
+
 impl Tama {
     /// Bytes of the firmware's GPIO pin-read function (r0 = port << 4 | pin), the same in every
     /// edition (Water, Land, Sky, Jade: 0x5D0C, Tropical, Glacier: 0x58C4, Neon: 0x5CEC).
@@ -246,10 +278,27 @@ impl Tama {
         }
         self.chercher_lecture();
         let lecture = self.lecture_broche.unwrap_or(u32::MAX);
-        for _ in 0..self.m.instructions_per_frame {
+        let mut left = self.m.instructions_per_frame;
+        while left > 0 {
             if self.m.cpu.regs.pc == lecture && self.m.cpu.regs.get_reg(0) == Self::BROCHE_TE {
                 self.attendre_te();
             }
+            if self.recomp_on {
+                let (n, exit) = self.recomp.run(&mut self.m, left, lecture, &mut |m, e| entretenir(m, e));
+                left = left.saturating_sub(n);
+                match exit {
+                    recomp::Exit::Stopped => {
+                        self.m.is_running = false;
+                        return false;
+                    }
+                    recomp::Exit::Ok if n > 0 => continue,
+                    _ => {}
+                }
+                if left == 0 {
+                    break;
+                }
+            }
+            // the interpreter takes this one (exceptions, IT blocks, the TE read, odd places)
             match self.m.step() {
                 StepResult::Ok(_) => {}
                 _ => {
@@ -257,6 +306,7 @@ impl Tama {
                     return false;
                 }
             }
+            left -= 1;
         }
         true
     }
@@ -281,30 +331,8 @@ impl Tama {
         self.attentes_sautees += fait as u64;
     }
 
-    /// What Capybara's core does with the cycles of its instructions (entretenir_peripheriques).
     fn entretenir(&mut self, e: u32) {
-        use emulator::peripherals::{adc_pile, gpio_port};
-        let c = &mut self.m.cpu;
-        let p = &mut self.m.periph;
-        c.nvic.tick_systick(e);
-        if p.port1.tick(e) {
-            c.nvic.request_irq(gpio_port::PORT1_IRQ);
-        }
-        if let Some(irq) = p.tic.tick(e) {
-            c.nvic.request_irq(irq);
-        }
-        if p.adc_pile.irq_a_lever | p.adc_pile.tick(e) {
-            p.adc_pile.irq_a_lever = false;
-            c.nvic.request_irq(adc_pile::IRQ);
-        }
-        if p.timers.tick(e) {
-            c.nvic.request_irq(16);
-        }
-        p.uart.tick(e, CYCLES_PAR_SECONDE as u32);
-        if p.uart.irq_pending {
-            c.nvic.request_irq(37);
-        }
-        p.snsys.tick(e);
+        entretenir(&mut self.m, e);
     }
 
     /// Plays the queued dial steps: each step is the two encoder lines in quadrature (A down,
@@ -561,6 +589,7 @@ impl Tama {
 
     /// The core was reset (its cycle counter restarted): the deadlines kept in cycles follow.
     fn recaler(&mut self) {
+        self.recomp.clear();
         let now = self.m.cpu.cycles;
         self.veille_depuis = None;
         self.bloc = None;
@@ -1170,4 +1199,10 @@ pub unsafe fn step_one(t: *mut Tama) {
         t.attendre_te();
     }
     t.m.step();
+}
+
+/// Debugging (examples only): the recompiler on or off.
+#[doc(hidden)]
+pub unsafe fn set_recomp(t: *mut Tama, on: bool) {
+    (*t).recomp_on = on;
 }
