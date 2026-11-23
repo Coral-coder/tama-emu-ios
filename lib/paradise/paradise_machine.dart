@@ -148,6 +148,16 @@ class ParadiseMachine extends ChangeNotifier {
   /// two frames (a quick spin of the dial queues its steps).
   Future<void> turn(bool right) async => _h?.turn(right);
 
+  /// The reset button: the console restarts on its save, the clock set again from the phone.
+  void reset() {
+    final h = _h;
+    if (h == null) return;
+    save();
+    h.reset();
+    if (h.syncClock() > 0) h.autoDate();
+    if (!running) start();
+  }
+
   PetState? pet() => _h?.pet();
   bool care(int what) => _h?.care(what) ?? false;
   Uint8List? block() => _h?.block();

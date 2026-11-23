@@ -35,6 +35,7 @@ pub struct Tama {
     auto_jusqu: u64,
     auto_prochain: u64,
     auto_relache: u64,
+    drapeau: u32,               // address of the sound flag (0: not looked up yet)
     veille_depuis: Option<u64>, // since when the core sits parked, powered off
     redemarrages: u32,
     // the dial: queued steps, played on the encoder lines in emulated time
@@ -69,6 +70,7 @@ pub extern "C" fn tama_new() -> *mut Tama {
         auto_jusqu: 0,
         auto_prochain: 0,
         auto_relache: 0,
+        drapeau: 0,
         veille_depuis: None,
         boucle: (0, 0, 0, 0),
         redemarrages: 0,
@@ -424,8 +426,61 @@ impl Tama {
     /// Capybara's note tracking (app.rs, note_jouee): the voice table is searched at the start of
     /// each sound (and again every half second while it gave nothing), and the stale note left
     /// from the previous sound is held as silence for up to 50 ms.
+    /// The firmware's "a sound is playing" flag. Capybara knows Water's (and Jade's, 8 further);
+    /// Tropical and Glacier keep the same variables 0xE4 bytes higher.
+    fn drapeau_son(&mut self) -> u32 {
+        if self.drapeau == 0 {
+            let f = &self.m.bus.flash.data;
+            let id = |a: usize| if a + 4 <= f.len() { u32::from_le_bytes([f[a], f[a + 1], f[a + 2], f[a + 3]]) } else { u32::MAX };
+            let decalage = if (5..=7).contains(&id(0xD29000)) {
+                0xE4
+            } else if id(0xD49000) == 4 {
+                8
+            } else {
+                0
+            };
+            self.drapeau = Machine::SON_EN_COURS + decalage;
+        }
+        self.drapeau
+    }
+
+    fn sram_u8(&self, a: u32) -> u8 {
+        self.m.bus.sram.data.get(a.wrapping_sub(0x1800_0000) as usize).copied().unwrap_or(0)
+    }
+
+    fn sram_u32(&self, a: u32) -> u32 {
+        let i = a.wrapping_sub(0x1800_0000) as usize;
+        let d = &self.m.bus.sram.data;
+        if i + 4 > d.len() {
+            return 0;
+        }
+        u32::from_le_bytes([d[i], d[i + 1], d[i + 2], d[i + 3]])
+    }
+
+    fn son_en_cours(&mut self) -> bool {
+        let a = self.drapeau_son();
+        self.sram_u8(a) != 0
+    }
+
+    /// Capybara's note_courante, with this edition's flag.
+    fn note_courante(&mut self) -> f32 {
+        if !self.son_en_cours() {
+            return 0.0;
+        }
+        for &base in &self.m.voix {
+            if self.sram_u32(base) != 0x05B8_D800 || self.sram_u8(base + 8) == 0 {
+                continue;
+            }
+            let hauteur = Machine::hauteur_de_voix(self.sram_u32(base + 4));
+            if hauteur > 0.0 && self.sram_u32(base + 0xC) > 0 {
+                return hauteur;
+            }
+        }
+        0.0
+    }
+
     fn suivre_le_son(&mut self) {
-        let joue = self.m.son_en_cours();
+        let joue = self.son_en_cours();
         let now = self.m.cpu.cycles;
         let demi = CYCLES_PAR_SECONDE as u64 / 2;
         if joue && (!self.son_jouait || (self.m.voix.is_empty() && now.saturating_sub(self.derniere_recherche) > demi)) {
@@ -434,11 +489,11 @@ impl Tama {
         }
         if joue && !self.son_jouait {
             self.sons = self.sons.wrapping_add(1);
-            self.note_perimee = self.m.note_courante();
+            self.note_perimee = self.note_courante();
             self.perimee_jusqu = now + CYCLES_PAR_SECONDE as u64 / 20;
         }
         self.son_jouait = joue;
-        let mut note = self.m.note_courante();
+        let mut note = self.note_courante();
         if note > 0.0 && now < self.perimee_jusqu {
             if (note - self.note_perimee).abs() < 0.5 {
                 note = 0.0;

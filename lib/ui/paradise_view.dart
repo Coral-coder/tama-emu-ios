@@ -160,6 +160,19 @@ class _ParadiseViewState extends State<ParadiseView> {
                     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                         content: Text(err ?? 'Sent to your Apple Watch. Open Tama there; the save comes back here when you leave the game on the watch.')));
                   }
+                case 'reset':
+                  final ok = await showDialog<bool>(
+                    context: context,
+                    builder: (c) => AlertDialog(
+                      title: const Text('Reset the console?'),
+                      content: const Text('Like the reset button on the back of the toy: the console restarts. Your Tamagotchi and its progress stay.'),
+                      actions: [
+                        TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
+                        FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Reset')),
+                      ],
+                    ),
+                  );
+                  if (ok == true) m.reset();
                 case 'stop':
                   await app.stopParadise();
               }
@@ -168,6 +181,7 @@ class _ParadiseViewState extends State<ParadiseView> {
             itemBuilder: (_) => [
               PopupMenuItem(value: 'pause', child: Text(m.running ? 'Pause' : 'Run')),
               const PopupMenuItem(value: 'look', child: Text('Upscaler & filter …')),
+              const PopupMenuItem(value: 'reset', child: Text('Reset button')),
               if (WatchLink.instance.available) const PopupMenuItem(value: 'watch', child: Text('Play on Apple Watch')),
               const PopupMenuItem(value: 'stop', child: Text('Back to the games')),
             ],
