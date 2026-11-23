@@ -30,6 +30,8 @@ pub struct Tama {
     lecture_cherchee: u64,
     attentes_sautees: u64,
     recomp: recomp::Recomp,
+    /// Values held by the memory tool: (region, address, bytes), put back after every slice.
+    gels: Vec<(u32, u32, Vec<u8>)>,
     /// Off: Capybara's interpreter alone (for comparisons).
     pub recomp_on: bool,
     // sound, followed as Capybara does: the voice table is looked up at the start of every sound
@@ -76,6 +78,7 @@ pub extern "C" fn tama_new() -> *mut Tama {
         lecture_cherchee: 0,
         attentes_sautees: 0,
         recomp: recomp::Recomp::default(),
+        gels: Vec::new(),
         recomp_on: false, // stage 1 is not faster yet (docs/recompiler.md)
         son_jouait: false,
         derniere_recherche: 0,
@@ -211,6 +214,7 @@ pub unsafe extern "C" fn tama_run(t: *mut Tama, cycles: u64, budget_ms: u32) -> 
         t.suivre_la_veille();
         t.tourner();
         t.soigner();
+        t.geler();
     }
     done
 }
@@ -242,6 +246,26 @@ fn entretenir(m: &mut Machine, e: u32) {
 }
 
 impl Tama {
+    /// The memory tool's held values, written back over whatever the game did.
+    fn geler(&mut self) {
+        if self.gels.is_empty() {
+            return;
+        }
+        let gels = std::mem::take(&mut self.gels);
+        for (r, a, v) in &gels {
+            if let Some(m) = memoire(&mut self.m, *r) {
+                let a = *a as usize;
+                if a + v.len() <= m.len() && &m[a..a + v.len()] != &v[..] {
+                    m[a..a + v.len()].copy_from_slice(v);
+                    if *r == MEM_FLASH {
+                        self.m.bus.flash.revision += 1;
+                    }
+                }
+            }
+        }
+        self.gels = gels;
+    }
+
     /// Bytes of the firmware's GPIO pin-read function (r0 = port << 4 | pin), the same in every
     /// edition (Water, Land, Sky, Jade: 0x5D0C, Tropical, Glacier: 0x58C4, Neon: 0x5CEC).
     const LECTURE_BROCHE: [u8; 10] = [0x87, 0xB0, 0x8D, 0xF8, 0x1B, 0x00, 0x05, 0x91, 0x04, 0x92];
@@ -1205,4 +1229,72 @@ pub unsafe fn step_one(t: *mut Tama) {
 #[doc(hidden)]
 pub unsafe fn set_recomp(t: *mut Tama, on: bool) {
     (*t).recomp_on = on;
+}
+
+// ---- memory tool ----------------------------------------------------------------------------
+
+/// Work RAM (SRAM, the game's live state, at 0x18000000 on the console).
+pub const MEM_SRAM: u32 = 0;
+/// The 16 MB flash (the ROM and its save areas, 0x1000.. and 0xEFE000..).
+pub const MEM_FLASH: u32 = 1;
+/// Program RAM (code and data copied there at boot, from 0x0).
+pub const MEM_PRAM: u32 = 2;
+
+fn memoire(m: &mut Machine, region: u32) -> Option<&mut Vec<u8>> {
+    match region {
+        MEM_SRAM => Some(&mut m.bus.sram.data),
+        MEM_FLASH => Some(&mut m.bus.flash.data),
+        MEM_PRAM => Some(&mut m.bus.pram.data),
+        _ => None,
+    }
+}
+
+/// Size of a memory region in bytes (0: no such region).
+#[no_mangle]
+pub unsafe extern "C" fn tama_mem_size(t: *mut Tama, region: u32) -> u32 {
+    memoire(&mut (*t).m, region).map_or(0, |m| m.len() as u32)
+}
+
+/// Copies `n` bytes of a region from `addr` into `out`. Returns the bytes copied.
+#[no_mangle]
+pub unsafe extern "C" fn tama_mem_read(t: *mut Tama, region: u32, addr: u32, out: *mut u8, n: u32) -> u32 {
+    let Some(m) = memoire(&mut (*t).m, region) else { return 0 };
+    let a = (addr as usize).min(m.len());
+    let k = (n as usize).min(m.len() - a);
+    std::ptr::copy_nonoverlapping(m[a..].as_ptr(), out, k);
+    k as u32
+}
+
+/// Writes `n` bytes into a region at `addr` (live; a flash write is kept with the save).
+#[no_mangle]
+pub unsafe extern "C" fn tama_mem_write(t: *mut Tama, region: u32, addr: u32, data: *const u8, n: u32) -> u32 {
+    let t = &mut *t;
+    let Some(m) = memoire(&mut t.m, region) else { return 0 };
+    let a = addr as usize;
+    if a >= m.len() {
+        return 0;
+    }
+    let k = (n as usize).min(m.len() - a);
+    std::ptr::copy_nonoverlapping(data, m[a..].as_mut_ptr(), k);
+    if region == MEM_FLASH {
+        t.m.bus.flash.revision += 1;
+    }
+    k as u32
+}
+
+/// Holds `n` bytes at `addr` (the game cannot change them); n = 0 lets go of that address.
+#[no_mangle]
+pub unsafe extern "C" fn tama_mem_freeze(t: *mut Tama, region: u32, addr: u32, data: *const u8, n: u32) {
+    let t = &mut *t;
+    t.gels.retain(|(r, a, _)| !(*r == region && *a == addr));
+    if n > 0 {
+        t.gels.push((region, addr, std::slice::from_raw_parts(data, n as usize).to_vec()));
+        t.geler();
+    }
+}
+
+/// Lets go of every held value.
+#[no_mangle]
+pub unsafe extern "C" fn tama_mem_unfreeze_all(t: *mut Tama) {
+    (*t).gels.clear();
 }

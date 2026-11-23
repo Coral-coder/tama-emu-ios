@@ -29,6 +29,11 @@ void tama_auto_date(Tama *t, uint32_t seconds);
 void tama_advance(Tama *t, uint32_t seconds);
 uint32_t tama_idle_seconds(Tama *t);
 int32_t tama_export_flash(const Tama *t, const char *path);
+uint32_t tama_mem_size(Tama *t, uint32_t region);
+uint32_t tama_mem_read(Tama *t, uint32_t region, uint32_t addr, uint8_t *out, uint32_t n);
+uint32_t tama_mem_write(Tama *t, uint32_t region, uint32_t addr, const uint8_t *data, uint32_t n);
+void tama_mem_freeze(Tama *t, uint32_t region, uint32_t addr, const uint8_t *data, uint32_t n);
+void tama_mem_unfreeze_all(Tama *t);
 uint64_t tama_waits_skipped(const Tama *t);
 /// Wakes the console from its power-save sleep. 1 when it was asleep.
 int32_t tama_wake(Tama *t);

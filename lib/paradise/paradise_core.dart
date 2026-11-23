@@ -38,6 +38,12 @@ typedef _SoundsN = Uint32 Function(Pointer<_Tama>);
 typedef _PetN = Void Function(Pointer<_Tama>, Pointer<Int32>);
 typedef _PetD = void Function(Pointer<_Tama>, Pointer<Int32>);
 typedef _BlockN = Int32 Function(Pointer<_Tama>, Pointer<Uint8>);
+typedef _MemSizeN = Uint32 Function(Pointer<_Tama>, Uint32);
+typedef _MemSizeD = int Function(Pointer<_Tama>, int);
+typedef _MemN = Uint32 Function(Pointer<_Tama>, Uint32, Uint32, Pointer<Uint8>, Uint32);
+typedef _MemD = int Function(Pointer<_Tama>, int, int, Pointer<Uint8>, int);
+typedef _FreezeN = Void Function(Pointer<_Tama>, Uint32, Uint32, Pointer<Uint8>, Uint32);
+typedef _FreezeD = void Function(Pointer<_Tama>, int, int, Pointer<Uint8>, int);
 typedef _BlockD = int Function(Pointer<_Tama>, Pointer<Uint8>);
 typedef _ClockCareN = Int32 Function(Pointer<_Tama>, Uint32);
 typedef _ClockCareD = int Function(Pointer<_Tama>, int);
@@ -74,6 +80,11 @@ class ParadiseCore {
         _sleeping = l.lookupFunction<_IntN, _IntD>('tama_sleeping'),
         _snapshot = l.lookupFunction<_PathN, _PathD>('tama_snapshot'),
         _exportFlash = l.lookupFunction<_PathN, _PathD>('tama_export_flash'),
+        _memSize = l.lookupFunction<_MemSizeN, _MemSizeD>('tama_mem_size'),
+        _memRead = l.lookupFunction<_MemN, _MemD>('tama_mem_read'),
+        _memWrite = l.lookupFunction<_MemN, _MemD>('tama_mem_write'),
+        _memFreeze = l.lookupFunction<_FreezeN, _FreezeD>('tama_mem_freeze'),
+        _memUnfreezeAll = l.lookupFunction<_FreeN, _FreeD>('tama_mem_unfreeze_all'),
         _restore = l.lookupFunction<_PathN, _PathD>('tama_restore'),
         cyclesPerSecond = l.lookupFunction<_U64N, _U64D>('tama_cycles_per_second')(),
         _syncClock = l.lookupFunction<_ClockN, _ClockD>('tama_sync_clock'),
@@ -125,6 +136,10 @@ class ParadiseCore {
   final _NoteD _note;
   final _IntD _sleeping;
   final _PathD _exportFlash;
+  final _MemSizeD _memSize;
+  final _MemD _memRead, _memWrite;
+  final _FreezeD _memFreeze;
+  final _FreeD _memUnfreezeAll;
   final _PathD _snapshot, _restore;
   final int cyclesPerSecond;
   final _ClockD _syncClock;
@@ -232,6 +247,42 @@ class ParadiseHandle {
 
   /// The console's seconds counter.
   int get seconds => core._seconds(_t);
+
+  // ---- memory tool: 0 work RAM, 1 flash (ROM and saves), 2 program RAM ----
+  int memSize(int region) => core._memSize(_t, region);
+
+  Uint8List memRead(int region, int addr, int n) {
+    final b = calloc<Uint8>(n);
+    try {
+      final k = core._memRead(_t, region, addr, b, n);
+      return Uint8List.fromList(b.asTypedList(k));
+    } finally {
+      calloc.free(b);
+    }
+  }
+
+  int memWrite(int region, int addr, List<int> bytes) {
+    final b = calloc<Uint8>(bytes.length);
+    try {
+      b.asTypedList(bytes.length).setAll(0, bytes);
+      return core._memWrite(_t, region, addr, b, bytes.length);
+    } finally {
+      calloc.free(b);
+    }
+  }
+
+  /// Holds bytes at an address (the game cannot change them); empty lets go.
+  void memFreeze(int region, int addr, List<int> bytes) {
+    final b = calloc<Uint8>(bytes.isEmpty ? 1 : bytes.length);
+    try {
+      b.asTypedList(bytes.length).setAll(0, bytes);
+      core._memFreeze(_t, region, addr, b, bytes.length);
+    } finally {
+      calloc.free(b);
+    }
+  }
+
+  void memUnfreezeAll() => core._memUnfreezeAll(_t);
 
   /// Offsets of the pet's record and of the planet level in the settings block.
   (int, int) petPlaces() {

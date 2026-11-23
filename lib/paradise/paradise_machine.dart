@@ -347,6 +347,9 @@ class ParadiseMachine extends ChangeNotifier {
 
   bool snapshot(String path) => _h?.snapshot(path) ?? false;
 
+  /// The live memory (see [ParadiseHandle.memRead]); null when not running.
+  ParadiseHandle? get handle => _h;
+
   /// The ROM with this game's save in it, ready to flash to the real toy.
   bool exportFlash(String path) {
     save();
