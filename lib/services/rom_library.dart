@@ -217,6 +217,15 @@ class RomLibrary extends ChangeNotifier {
 
   /// Cover picture of a ROM (PNG), taken from the ROM's own graphics: a Paradise shows its
   /// edition's field. Null for ROMs without pictures (the first toys draw their own).
+  /// A ROM changed on disk (its pictures): its cover and unpacked copy are made again.
+  Future<void> forget(RomEntry e) async {
+    _covers.remove(e.id);
+    _unpacking.remove(e.id);
+    for (final f in [File('${docs.path}/covers/${e.id}.png'), File('${docs.path}/unpacked/${e.id}.bin')]) {
+      if (await f.exists()) await f.delete();
+    }
+  }
+
   final Map<String, Future<File?>> _covers = {};
   Future<File?> cover(RomEntry e) => _covers.putIfAbsent(e.id, () => _makeCover(e));
 

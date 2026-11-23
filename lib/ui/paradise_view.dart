@@ -13,6 +13,8 @@ import 'care_sheet.dart';
 import '../emu/rom_info.dart';
 import 'hardware_screen.dart';
 import 'paradise_screen.dart';
+import 'pictures_screen.dart';
+import 'save_editor.dart';
 import 'screen_filters.dart';
 import 'shell_theme.dart';
 import 'theme_screen.dart';
@@ -220,6 +222,10 @@ class _ParadiseViewState extends State<ParadiseView> {
               switch (v) {
                 case 'pause':
                   m.running ? m.pause() : m.start();
+                case 'edit':
+                  if (context.mounted) await Navigator.of(context).push(MaterialPageRoute(builder: (_) => SaveEditor(m: m, rom: widget.rom)));
+                case 'pictures':
+                  if (context.mounted) await Navigator.of(context).push(MaterialPageRoute(builder: (_) => PicturesScreen(rom: widget.rom)));
                 case 'theme':
                   if (context.mounted) await Navigator.of(context).push(MaterialPageRoute(builder: (_) => ThemeScreen(gameId: widget.rom.id, gameName: widget.rom.name)));
                 case 'look':
@@ -274,6 +280,8 @@ class _ParadiseViewState extends State<ParadiseView> {
             },
             itemBuilder: (_) => [
               PopupMenuItem(value: 'pause', child: Text(m.running ? 'Pause' : 'Run')),
+              const PopupMenuItem(value: 'edit', child: ListTile(leading: Icon(Icons.edit_note), title: Text('Change the save (live)'))),
+              const PopupMenuItem(value: 'pictures', child: ListTile(leading: Icon(Icons.brush), title: Text('Repaint the pictures'))),
               const PopupMenuItem(value: 'theme', child: Text('This game\'s colours …')),
               const PopupMenuItem(value: 'look', child: Text('Upscaler & filter …')),
               const PopupMenuItem(value: 'reset', child: Text('Reset button')),

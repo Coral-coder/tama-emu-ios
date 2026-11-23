@@ -8,6 +8,7 @@ import '../paradise/paradise_machine.dart';
 import '../paradise/unlock.dart';
 import '../services/app_state.dart';
 import '../services/rom_library.dart';
+import 'pictures_screen.dart';
 
 /// A game's menu (long press on its card): play, stop, edit the save, reset the save.
 Future<void> showGameMenu(BuildContext context, RomEntry e) {
@@ -35,6 +36,15 @@ Future<void> showGameMenu(BuildContext context, RomEntry e) {
           onTap: () async {
             Navigator.pop(c);
             await openSaveEditor(context, e);
+          },
+        ),
+        ListTile(
+          leading: const Icon(Icons.brush),
+          title: const Text('Repaint the pictures'),
+          subtitle: const Text('Characters, items, fields: pixel by pixel'),
+          onTap: () {
+            Navigator.pop(c);
+            Navigator.of(context).push(MaterialPageRoute(builder: (_) => PicturesScreen(rom: e)));
           },
         ),
         if (running)
