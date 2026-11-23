@@ -15,7 +15,9 @@ fn main() {
         let cps = tama_core::tama_cycles_per_second();
         let mut last = String::new();
         let t0 = Instant::now();
+        let key = a.get(3).is_some(); // a third word: press B at 13 s, as the battery example does
         for s in 0..secs {
+            if key && s == 13 { tama_core::tama_press(t, 0x0B); tama_core::tama_run(t, cps / 8, 600000); tama_core::tama_release(t, 0x0B); }
             let a = Instant::now();
             tama_core::tama_run(t, cps, 600000);
             let ms = a.elapsed().as_millis();
