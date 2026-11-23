@@ -265,9 +265,10 @@ jobs:
 
       # Direct USB serial: the DriverKit driver (ios/TamaSerialDriver) goes into the app as its own
       # target. Needs the team's DriverKit entitlements (driverkit, transport.usb,
-      # communicates-with-drivers). Set the repository variable DRIVERKIT to off to leave it out.
+      # communicates-with-drivers). App Store / TestFlight builds can carry it only once Apple grants
+      # DriverKit for distribution: set the repository variable DRIVERKIT to on to try it.
       - name: Add the USB serial driver
-        if: vars.DRIVERKIT != 'off'
+        if: vars.DRIVERKIT == 'on'
         run: |
           gem list -i xcodeproj > /dev/null || sudo gem install xcodeproj --no-document
           TEAM_ID="$TEAM_ID" BUNDLE_ID="$BUNDLE_ID" ruby ../tool/add_driverkit.rb
@@ -398,10 +399,13 @@ jobs:
           # look for its file before it's written ("Build input file cannot be found:
           # …mobileprovision"). The profile then exists, so archiving again gets past it — up
           # to three tries, only for that error.
-          for attempt in 1 2 3; do
+          # Cloud signing also fails now and then while it makes or fetches profiles ("Failed to load
+          # profile", "No profiles for ... were found"): those get the same retries, after a pause.
+          for attempt in 1 2 3 4; do
             if archive; then ok=true; break; fi
-            grep -q "Build input file cannot be found: .*\.mobileprovision" build/xcodebuild.log || break
-            echo "New provisioning profile wasn't ready yet; archiving again (try $((attempt + 1)))"
+            grep -qE "Build input file cannot be found: .*\.mobileprovision|Failed to load profile|No profiles for '[^']+' were found" build/xcodebuild.log || break
+            echo "Signing profiles were not ready; archiving again in 20 s (try $((attempt + 1)))"
+            sleep 20
           done
           if [ "$ok" != true ] && [ -f build_driverkit_added ]; then
             # The driver did not build or sign (entitlements, provisioning): say why, then archive
@@ -414,7 +418,11 @@ jobs:
             rm -f build_driverkit_added
             if [ -f build_watch_added ]; then TEAM_ID="$TEAM_ID" BUNDLE_ID="$BUNDLE_ID" ruby ../tool/add_watch.rb; fi
             echo "### USB serial driver left out of this build (see the warnings)" >> "$GITHUB_STEP_SUMMARY"
-            if archive; then ok=true; fi
+            for attempt in 1 2 3; do
+              if archive; then ok=true; break; fi
+              grep -qE "Failed to load profile|No profiles for '[^']+' were found|\.mobileprovision" build/xcodebuild.log || break
+              sleep 20
+            done
           fi
           if [ "$ok" != true ] && [ -f build_watch_added ]; then
             # The watch app did not build or sign: say why, then archive the iPhone app alone.
@@ -436,6 +444,17 @@ jobs:
             exit 1
           fi
           tail -60 build/xcodebuild.log
+
+      - name: What the Apple Watch app is made of
+        if: always()
+        run: |
+          w=$(ls -d build/*.xcarchive/Products/Applications/*.app/Watch/*.app 2>/dev/null | head -1)
+          if [ -z "$w" ]; then echo "### No Apple Watch app in this build" >> "$GITHUB_STEP_SUMMARY"; echo "No watch app in the archive"; exit 0; fi
+          lipo -info "$w/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$w/Info.plist")" || true
+          for k in CFBundleIdentifier MinimumOSVersion UIDeviceFamily WKApplication WKCompanionAppBundleIdentifier CFBundleShortVersionString CFBundleVersion; do
+            echo "$k: $(/usr/libexec/PlistBuddy -c "Print :$k" "$w/Info.plist" 2>/dev/null | tr '\n' ' ')"
+          done
+          echo "### Apple Watch app included ($(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$w/Info.plist") or later)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload to TestFlight
         if: env.UPLOAD == 'true'
