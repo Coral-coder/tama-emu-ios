@@ -79,7 +79,7 @@ pub extern "C" fn tama_new() -> *mut Tama {
         attentes_sautees: 0,
         recomp: recomp::Recomp::default(),
         gels: Vec::new(),
-        recomp_on: false, // stage 1 is not faster yet (docs/recompiler.md)
+        recomp_on: true,
         son_jouait: false,
         derniere_recherche: 0,
         note_perimee: 0.0,
@@ -323,6 +323,9 @@ impl Tama {
                 }
             }
             // the interpreter takes this one (exceptions, IT blocks, the TE read, odd places)
+            if self.m.cpu.regs.pc == lecture && self.m.cpu.regs.get_reg(0) == Self::BROCHE_TE {
+                self.attendre_te();
+            }
             match self.m.step() {
                 StepResult::Ok(_) => {}
                 _ => {

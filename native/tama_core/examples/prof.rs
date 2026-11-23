@@ -10,6 +10,7 @@ fn main() {
         tama_core::tama_sync_clock(t, now);
         tama_core::tama_auto_date(t, 120);
         let cps = tama_core::tama_cycles_per_second();
+        tama_core::set_recomp(t, a.get(3).is_some());
         let secs: u64 = a.get(2).map(|s| s.parse().unwrap()).unwrap_or(3);
         tama_core::tama_run(t, cps * secs, 6000000);
     }

@@ -37,6 +37,9 @@ and frame rate (iPhone, Apple Watch, Android), without changing what the game do
 ## Milestones
 
 1. Coverage tracer and instruction census (done).
+1b. Stage 1, pre-decoded blocks run by Capybara's executors (done, on by default): 1.40-1.46x
+   faster on Water, Neon, Glacier, Jade (examples/recomp_check.rs: same screens, sounds and
+   sleep/wake times; a few dozen bytes of work RAM differ after 20 s, from frame timing).
 2. Block builder and decoder for the hot kinds, interpreter fallback for the rest.
 3. Lockstep tester on all editions; fix until it matches for minutes of play.
 4. Switch the app's core to it (phone, watch, Android), measure battery and frame rate.
