@@ -126,8 +126,6 @@ final class Console: ObservableObject {
     } else if quietSince == .distantFuture {
       quietSince = now
     }
-    // the console's screen stays on while the game is shown
-    if tama_sleeping(t) != 0 { tama_wake(t) }
     if now.timeIntervalSince(lastSave) > 60 { saveNow(send: false) }
     if tama_running(t) == 0 {
       error = "The console stopped."

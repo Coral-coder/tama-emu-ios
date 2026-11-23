@@ -9,6 +9,7 @@ import '../paradise/paradise_core.dart';
 import '../paradise/paradise_machine.dart';
 import '../ui/screen_filters.dart';
 import 'native.dart';
+import '../paradise/unit_link.dart';
 import 'rom_library.dart';
 import 'watch.dart';
 import 'serial/serial_hub.dart';
@@ -48,6 +49,10 @@ class AppState extends ChangeNotifier {
   /// The running Tamagotchi Paradise (Capybara core), when one is played.
   ParadiseMachine? paradise;
   RomEntry? paradiseRom;
+  /// A second game running beside the first, linked to it (two units held together).
+  ParadiseMachine? partner;
+  RomEntry? partnerRom;
+  ParadiseLink? get link => paradise?.link;
 
   LinkMode linkMode = LinkMode.off;
   StreamSubscription<Uint8List>? _uartSub, _tunnelSub;
@@ -55,6 +60,9 @@ class AppState extends ChangeNotifier {
   bool keepLiving = true;
   bool sound = true;
   bool backgroundRun = true;
+  /// Keeps the console (and the phone's screen) awake while a game is shown. Off: it sleeps like
+  /// the toy, and spends far less battery.
+  bool keepScreenOn = false;
   bool ghostDots = true;
   Upscale upscale = Upscale.scale2x;
   ScreenFilter filter = ScreenFilter.none;
@@ -78,6 +86,7 @@ class AppState extends ChangeNotifier {
     keepLiving = prefs.getBool('keepLiving') ?? true;
     sound = prefs.getBool('sound') ?? true;
     backgroundRun = prefs.getBool('backgroundRun') ?? true;
+    keepScreenOn = prefs.getBool('keepScreenOn') ?? false;
     ghostDots = prefs.getBool('ghostDots') ?? true;
     upscale = Upscale.values.asNameMap()[prefs.getString('upscale')] ?? Upscale.scale2x;
     filter = ScreenFilter.values.asNameMap()[prefs.getString('filter')] ?? ScreenFilter.none;
@@ -133,6 +142,7 @@ class AppState extends ChangeNotifier {
     final dump = await library.romFile(e);
     final m = ParadiseMachine(core: core, dumpPath: dump.path, savePath: library.paradiseSave(e).path, title: e.name)
       ..sound = sound
+      ..keepScreenOn = keepScreenOn
       ..autoCareBits = autoCare(e)
       ..onCall = (t) => NativeBridge.notify(t.replaceFirst('Tamagotchi Paradise · ', ''), 'Your Tamagotchi is calling you.');
     unawaited(NativeBridge.askToNotify());
@@ -150,7 +160,53 @@ class AppState extends ChangeNotifier {
     return null;
   }
 
+  /// Starts [e] as a second console and links it to the game being played. Same ROM: the
+  /// partner gets a save of its own.
+  Future<String?> linkPartner(RomEntry e) async {
+    final core = ParadiseCore.instance;
+    final a = paradise;
+    if (core == null || a == null) return 'Start a game first.';
+    await unlink();
+    final dump = await library.romFile(e);
+    final same = paradiseRom?.id == e.id;
+    final save = same ? library.paradiseSave(e).path.replaceFirst('.save', '-partner.save') : library.paradiseSave(e).path;
+    final b = ParadiseMachine(core: core, dumpPath: dump.path, savePath: save, title: e.name)
+      ..sound = false
+      ..autoCareBits = autoCare(e);
+    final r = b.boot(paradiseKey(e));
+    if (r != 1) {
+      b.dispose();
+      return b.error ?? 'The game did not start.';
+    }
+    partner = b;
+    partnerRom = e;
+    TwinLink(a, b);
+    notifyListeners();
+    return null;
+  }
+
+  /// Links the game being played to a real unit on the serial connection.
+  Future<String?> linkUnit() async {
+    final a = paradise;
+    if (a == null) return 'Start a game first.';
+    if (!serial.connected) return 'Connect the serial adapter or bridge first (Link → Hardware).';
+    await unlink();
+    UnitLink(a, serial);
+    notifyListeners();
+    return null;
+  }
+
+  Future<void> unlink() async {
+    await paradise?.link?.close();
+    final b = partner;
+    partner = null;
+    partnerRom = null;
+    b?.dispose();
+    notifyListeners();
+  }
+
   Future<void> stopParadise() async {
+    await unlink();
     final m = paradise;
     if (m == null) return;
     paradise = null;
@@ -194,6 +250,7 @@ class AppState extends ChangeNotifier {
   Future<void> onBackground() async {
     _bgAt = DateTime.now();
     paradise?.background = true;
+    partner?.background = true;
     paradise?.releaseAll();
     paradise?.save();
     if (paradise != null && !backgroundRun) paradise!.pause();
@@ -209,6 +266,7 @@ class AppState extends ChangeNotifier {
     final p = paradise;
     if (p != null) {
       p.background = false;
+      partner?.background = false;
       if (!p.running) p.resumeAfter(away);
     }
     final m = machine;

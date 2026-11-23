@@ -39,6 +39,7 @@ pub struct Tama {
     drapeau: u32,               // address of the sound flag (0: not looked up yet)
     veille_depuis: Option<u64>, // since when the core sits parked, powered off
     redemarrages: u32,
+    reveils: u32,
     veilles_sautees: u64, // console cycles skipped while asleep (for the record)
     // the dial: queued steps, played on the encoder lines in emulated time
     tours: std::collections::VecDeque<bool>,
@@ -78,6 +79,7 @@ pub extern "C" fn tama_new() -> *mut Tama {
         boucle: (0, 0, 0, 0),
         redemarrages: 0,
         veilles_sautees: 0,
+        reveils: 0,
         tours: std::collections::VecDeque::new(),
         phase: 0,
         phase_a: 0,
@@ -164,6 +166,13 @@ pub unsafe extern "C" fn tama_run(t: *mut Tama, cycles: u64, budget_ms: u32) -> 
         if t.saut_de_veille() {
             let pas = (cycles - done).min(CYCLES_PAR_SECONDE as u64 / 10);
             t.m.periph.snsys.tick(pas as u32);
+            if t.m.periph.snsys.reveil_demande {
+                // the clock's alarm woke it, not a key: the power block says so (a key wake left
+                // its flag standing would make the firmware light the screen as for a key)
+                use emulator::peripherals::PmuController as Pmu;
+                let st = &mut t.m.periph.pmu.status;
+                *st = (*st & !Pmu::FLAG_WAKEUP_PIN) | Pmu::FLAG_RTC | Pmu::FLAG_WAKEUP_INT;
+            }
             t.m.cpu.cycles += pas;
             done += pas;
             t.veilles_sautees += pas;
@@ -176,6 +185,7 @@ pub unsafe extern "C" fn tama_run(t: *mut Tama, cycles: u64, budget_ms: u32) -> 
         let apres = t.m.cpu.cycles;
         if apres < avant {
             // a wake from deep sleep resets the core, and its cycle counter with it
+            t.reveils += 1;
             done += apres;
             t.recaler();
         } else {
@@ -323,6 +333,7 @@ impl Tama {
     /// Whether the run can skip ahead: asleep, no alarm pending, nothing to press or turn.
     fn saut_de_veille(&self) -> bool {
         self.en_veille() && !self.m.periph.snsys.reveil_demande && self.tours.is_empty() && self.auto_relache == 0
+            && self.m.periph.uart.rx_in.is_empty()
     }
 
     /// Deep sleep, on every edition: Capybara knows Water's sleep loop (0x23D0); the others park
@@ -795,7 +806,7 @@ pub unsafe extern "C" fn tama_debug(t: *const Tama, out: *mut u32) {
     let t = &*t;
     *out = t.m.cpu.regs.pc;
     *out.add(1) = t.m.periph.snsys.read_reg(0x300);
-    *out.add(2) = t.redemarrages;
+    *out.add(2) = t.reveils;
 }
 
 /// Restarts the core, as the chip's watchdog does (the firmware waits for it after "reset all").
@@ -890,4 +901,44 @@ pub unsafe extern "C" fn tama_release_all(t: *mut Tama) {
 #[no_mangle]
 pub unsafe extern "C" fn tama_skipped(t: *const Tama) -> u64 {
     (*t).veilles_sautees
+}
+
+/// Debugging: logs the accesses to one 4 KB page of registers (0 stops), and prints them.
+#[no_mangle]
+pub unsafe extern "C" fn tama_debug_trace(t: *mut Tama, page: u32, print: i32) {
+    let t = &mut *t;
+    if print != 0 {
+        for e in &t.m.bus.mmio_trace.log {
+            println!("pc {:08X} {} {:08X} = {:08X}", e.pc, if e.is_write { "W" } else { "R" }, e.addr, e.value);
+        }
+        t.m.bus.mmio_trace.log.clear();
+    }
+    t.m.bus.mmio_trace.log_page = if page != 0 { Some(page) } else { None };
+}
+
+/// The link port (the console's UART at 460800 baud, through which a real unit plays with
+/// another): bytes the console sent, up to max into out. Returns how many.
+#[no_mangle]
+pub unsafe extern "C" fn tama_link_take(t: *mut Tama, out: *mut u8, max: u32) -> u32 {
+    let t = &mut *t;
+    let q = &mut t.m.periph.uart.tx_out;
+    let n = q.len().min(max as usize);
+    for i in 0..n {
+        *out.add(i) = q.pop_front().unwrap_or(0);
+    }
+    n as u32
+}
+
+/// Bytes arriving on the link port (from the other console).
+#[no_mangle]
+pub unsafe extern "C" fn tama_link_give(t: *mut Tama, data: *const u8, n: u32) {
+    let t = &mut *t;
+    t.m.periph.uart.inject_rx_bytes(std::slice::from_raw_parts(data, n as usize));
+}
+
+/// Empties the link line both ways (when a link starts: the boot log waiting there is not for the
+/// other console).
+#[no_mangle]
+pub unsafe extern "C" fn tama_link_clear(t: *mut Tama) {
+    (*t).m.periph.uart.vider_la_ligne();
 }

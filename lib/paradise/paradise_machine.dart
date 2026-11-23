@@ -102,11 +102,13 @@ class ParadiseMachine extends ChangeNotifier {
       frame++;
       notifyListeners();
     }
+    link?.pump();
     final note = h.note();
     // the buzzer plays while the game is on screen; in the background a notification calls
     _tone(sound && !_bg ? note : 0);
     _watchCalls(note);
-    // there is no display to save here: while the game is on screen, the console's screen stays on
+    // the console sleeps when left alone, like the toy (a key or the dial wakes it); only with
+    // "keep the screen on" is it woken right away
     if (!background && keepScreenOn && h.sleeping) h.wake();
     if (!h.running) {
       error = 'The console stopped.';
@@ -128,7 +130,7 @@ class ParadiseMachine extends ChangeNotifier {
       _timer = Timer.periodic(Duration(milliseconds: _bg ? 1000 : 16), (_) => _frame());
     }
   }
-  bool keepScreenOn = true;
+  bool keepScreenOn = false;
   void Function(String title)? onCall;
   int _quietSince = 0;
   void _watchCalls(double note) {
@@ -155,6 +157,14 @@ class ParadiseMachine extends ChangeNotifier {
     _toneOn = on;
     NativeBridge.tone(on ? (hz * 10).round() : 0, on);
   }
+
+  /// What the console sent on its link port, and bytes for it (see [ParadiseLink]).
+  Uint8List linkTake() => _h?.linkTake() ?? Uint8List(0);
+  void linkGive(Uint8List d) => _h?.linkGive(d);
+  void linkClear() => _h?.linkClear();
+
+  /// The link this console is on (another game, or a real unit), pumped every frame.
+  ParadiseLink? link;
 
   void press(int pin) => _h?.press(pin);
   /// Nothing stays held (the app went to the background, a sheet opened over the keys).
@@ -268,4 +278,46 @@ class ParadiseMachine extends ChangeNotifier {
   }
 
   static Future<bool> exists(String p) => File(p).exists();
+}
+
+/// A wire on the console's link port.
+abstract class ParadiseLink {
+  void pump();
+  String get status;
+  Future<void> close();
+}
+
+/// Two games of the app, link port to link port (as two units held together).
+class TwinLink implements ParadiseLink {
+  TwinLink(this.a, this.b) {
+    a.linkClear();
+    b.linkClear();
+    a.link = this;
+    b.link = this;
+  }
+  final ParadiseMachine a, b;
+  int ab = 0, ba = 0;
+
+  @override
+  void pump() {
+    final x = a.linkTake();
+    if (x.isNotEmpty) {
+      b.linkGive(x);
+      ab += x.length;
+    }
+    final y = b.linkTake();
+    if (y.isNotEmpty) {
+      a.linkGive(y);
+      ba += y.length;
+    }
+  }
+
+  @override
+  String get status => 'Linked · ${a.title.replaceFirst('Tamagotchi Paradise · ', '')} → $ab bytes, ← $ba bytes';
+
+  @override
+  Future<void> close() async {
+    if (a.link == this) a.link = null;
+    if (b.link == this) b.link = null;
+  }
 }

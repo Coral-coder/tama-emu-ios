@@ -25,6 +25,16 @@ class AboutScreen extends StatelessWidget {
             },
           ),
           SwitchListTile(
+            title: const Text('Keep the screen on'),
+            subtitle: const Text('Off: the console goes to sleep when left alone, like the toy (a key or the dial wakes it), and the phone locks as usual. Far less battery.'),
+            value: app.keepScreenOn,
+            onChanged: (v) async {
+              app.keepScreenOn = v;
+              app.paradise?.keepScreenOn = v;
+              await app.setPref('keepScreenOn', v);
+            },
+          ),
+          SwitchListTile(
             title: const Text('Keep living while closed'),
             subtitle: const Text('When the app was closed or suspended, the time away is played through on the next start, as on a real toy.'),
             value: app.keepLiving,

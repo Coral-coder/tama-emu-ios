@@ -10,6 +10,9 @@ import '../services/native.dart';
 import '../services/rom_library.dart';
 import '../services/watch.dart';
 import 'care_sheet.dart';
+import '../emu/rom_info.dart';
+import 'hardware_screen.dart';
+import 'paradise_screen.dart';
 import 'screen_filters.dart';
 import 'theme.dart';
 
@@ -30,12 +33,19 @@ class _ParadiseViewState extends State<ParadiseView> {
 
   ParadiseMachine get m => widget.machine;
 
+  /// Linked to a second game: the keys and the dial drive the console picked on screen.
+  bool _second = false;
+  ParadiseMachine get t {
+    final p = AppState.instance.partner;
+    return _second && p != null ? p : m;
+  }
+
   @override
   void initState() {
     super.initState();
     m.addListener(_onFrame);
     _onFrame();
-    NativeBridge.keepScreenOn(true);
+    NativeBridge.keepScreenOn(AppState.instance.keepScreenOn);
   }
 
   @override
@@ -113,14 +123,57 @@ class _ParadiseViewState extends State<ParadiseView> {
     }
   }
 
+  Widget _mainScreen(AppState app) => _img == null
+      ? const ColoredBox(color: Colors.black)
+      : RawImage(image: _img, fit: BoxFit.fill, filterQuality: app.upscale == Upscale.smooth || app.upscale == Upscale.hq ? FilterQuality.medium : FilterQuality.none);
+
+  /// One of the two linked consoles; touching it gives it the keys and the dial.
+  Widget _pick(bool second, Widget screen) => GestureDetector(
+        onTap: () {
+          m.releaseAll();
+          AppState.instance.partner?.releaseAll();
+          setState(() => _second = second);
+        },
+        child: Container(
+          margin: const EdgeInsets.all(3),
+          decoration: BoxDecoration(border: Border.all(color: _second == second ? kAmber : Colors.white12, width: 3)),
+          child: screen,
+        ),
+      );
+
+  Future<void> _pickPartner(BuildContext context) async {
+    final app = AppState.instance;
+    final games = app.library.entries.where((e) => e.kind == RomKind.paradise).toList();
+    final e = await showDialog<RomEntry>(
+      context: context,
+      builder: (c) => SimpleDialog(
+        title: const Text('Link with which game?'),
+        children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(24, 0, 24, 8),
+            child: Text('Both run side by side, link port to link port. Touch a screen to play it.', style: TextStyle(color: Colors.white60)),
+          ),
+          for (final g in games)
+            SimpleDialogOption(onPressed: () => Navigator.pop(c, g), child: Text(g.name.replaceFirst('Tamagotchi Paradise · ', ''))),
+        ],
+      ),
+    );
+    if (e == null) return;
+    final err = await app.linkPartner(e);
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(err ?? 'Linked. On both consoles open CONNECTION and pick the same thing (PLAYDATE, GIFTS …).')));
+    }
+  }
+
   Widget _key(String label, int pin, {double size = 70}) => _HoldKey(
         label: label,
         size: size,
         onDown: () {
           HapticFeedback.lightImpact();
-          m.press(pin);
+          t.press(pin);
         },
-        onUp: () => m.release(pin),
+        onUp: () => t.release(pin),
       );
 
   @override
@@ -180,6 +233,22 @@ class _ParadiseViewState extends State<ParadiseView> {
                     ),
                   );
                   if (ok == true) m.reset();
+                case 'twin':
+                  if (context.mounted) await _pickPartner(context);
+                case 'unit':
+                  final err = await app.linkUnit();
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                      content: Text(err ??
+                          'Linked to the real unit. On both, open CONNECTION and pick the same thing (PLAYDATE, GIFTS …).'),
+                      action: err == null
+                          ? null
+                          : SnackBarAction(label: 'Hardware', onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const HardwareScreen()))),
+                    ));
+                  }
+                case 'unlink':
+                  _second = false;
+                  await app.unlink();
                 case 'stop':
                   await app.stopParadise();
               }
@@ -189,6 +258,9 @@ class _ParadiseViewState extends State<ParadiseView> {
               PopupMenuItem(value: 'pause', child: Text(m.running ? 'Pause' : 'Run')),
               const PopupMenuItem(value: 'look', child: Text('Upscaler & filter …')),
               const PopupMenuItem(value: 'reset', child: Text('Reset button')),
+              if (app.link == null) const PopupMenuItem(value: 'twin', child: Text('Link with another game …')),
+              if (app.link == null) const PopupMenuItem(value: 'unit', child: Text('Link with my real unit')),
+              if (app.link != null) const PopupMenuItem(value: 'unlink', child: Text('Unlink')),
               if (WatchLink.instance.available) const PopupMenuItem(value: 'watch', child: Text('Play on Apple Watch')),
               const PopupMenuItem(value: 'stop', child: Text('Back to the games')),
             ],
@@ -201,7 +273,14 @@ class _ParadiseViewState extends State<ParadiseView> {
           // the screen as big as it gets: full width, leaving room for the keys and the dial
           const controls = 250.0;
           final side = c.maxWidth.clamp(0.0, (c.maxHeight - controls).clamp(160.0, c.maxHeight));
+          final partner = app.partner;
           return Column(children: [
+            if (partner != null)
+              Row(children: [
+                Expanded(child: _pick(false, AspectRatio(aspectRatio: 1, child: _mainScreen(app)))),
+                Expanded(child: _pick(true, AspectRatio(aspectRatio: 1, child: ParadiseScreen(machine: partner)))),
+              ])
+            else
             SizedBox(
               width: side,
               height: side,
@@ -241,16 +320,16 @@ class _ParadiseViewState extends State<ParadiseView> {
                         size: dial,
                         onStep: (right) {
                           HapticFeedback.selectionClick();
-                          m.turn(right);
+                          t.turn(right);
                         },
                         onPress: (down) {
                           if (down) HapticFeedback.mediumImpact();
-                          down ? m.press(ParadiseHandle.pinWheel) : m.release(ParadiseHandle.pinWheel);
+                          down ? t.press(ParadiseHandle.pinWheel) : t.release(ParadiseHandle.pinWheel);
                         },
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        m.error ?? (m.typing ? 'Typing … ${(m.typingProgress * 100).round()} %' : (m.running ? '${(m.load * 100).round()} % speed' : 'Paused')),
+                        app.link != null ? app.link!.status : m.error ?? (m.typing ? 'Typing … ${(m.typingProgress * 100).round()} %' : (m.running ? '${(m.load * 100).round()} % speed' : 'Paused')),
                         style: TextStyle(color: m.error != null ? Colors.redAccent : Colors.white38, fontSize: 11),
                       ),
                     ]),

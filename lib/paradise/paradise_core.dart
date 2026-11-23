@@ -41,6 +41,10 @@ typedef _BlockN = Int32 Function(Pointer<_Tama>, Pointer<Uint8>);
 typedef _BlockD = int Function(Pointer<_Tama>, Pointer<Uint8>);
 typedef _ClockCareN = Int32 Function(Pointer<_Tama>, Uint32);
 typedef _ClockCareD = int Function(Pointer<_Tama>, int);
+typedef _TakeN = Uint32 Function(Pointer<_Tama>, Pointer<Uint8>, Uint32);
+typedef _TakeD = int Function(Pointer<_Tama>, Pointer<Uint8>, int);
+typedef _GiveN = Void Function(Pointer<_Tama>, Pointer<Uint8>, Uint32);
+typedef _GiveD = void Function(Pointer<_Tama>, Pointer<Uint8>, int);
 typedef _KeyN = Int32 Function(Pointer<Utf8>, Uint32, Pointer<Uint32>);
 typedef _KeyD = int Function(Pointer<Utf8>, int, Pointer<Uint32>);
 
@@ -74,6 +78,9 @@ class ParadiseCore {
         _turn = l.lookupFunction<_PinN, _PinD>('tama_turn'),
         _reset = l.lookupFunction<_FreeN, _FreeD>('tama_reset'),
         _releaseAll = l.lookupFunction<_FreeN, _FreeD>('tama_release_all'),
+        _linkTake = l.lookupFunction<_TakeN, _TakeD>('tama_link_take'),
+        _linkGive = l.lookupFunction<_GiveN, _GiveD>('tama_link_give'),
+        _linkClear = l.lookupFunction<_FreeN, _FreeD>('tama_link_clear'),
         _pet = l.lookupFunction<_PetN, _PetD>('tama_pet'),
         _care = l.lookupFunction<_ClockCareN, _ClockCareD>('tama_care'),
         _autoCare = l.lookupFunction<_PinN, _PinD>('tama_auto_care'),
@@ -117,6 +124,9 @@ class ParadiseCore {
   final _PinD _turn;
   final _FreeD _reset;
   final _FreeD _releaseAll;
+  final _TakeD _linkTake;
+  final _GiveD _linkGive;
+  final _FreeD _linkClear;
   final _PetD _pet;
   final _ClockCareD _care;
   final _PinD _autoCare;
@@ -174,6 +184,25 @@ class ParadiseHandle {
   double note() => core._note(_t);
   /// Sounds the console started so far.
   int get sounds => core._sounds(_t);
+  final Pointer<Uint8> _linkBuf = calloc<Uint8>(8192);
+
+  /// The link port (the console's UART at 460800 baud): what it sent since the last call.
+  Uint8List linkTake() {
+    final n = core._linkTake(_t, _linkBuf, 8192);
+    return n == 0 ? Uint8List(0) : Uint8List.fromList(_linkBuf.asTypedList(n));
+  }
+
+  /// Bytes arriving on the link port.
+  void linkGive(Uint8List d) {
+    for (var o = 0; o < d.length; o += 8192) {
+      final n = (d.length - o).clamp(0, 8192);
+      _linkBuf.asTypedList(n).setAll(0, d.sublist(o, o + n));
+      core._linkGive(_t, _linkBuf, n);
+    }
+  }
+
+  void linkClear() => core._linkClear(_t);
+
   /// Lets go of every key and the dial.
   void releaseAll() => core._releaseAll(_t);
 
@@ -248,6 +277,7 @@ class ParadiseHandle {
     core._free(_t);
     _t = nullptr;
     calloc.free(_fb);
+    calloc.free(_linkBuf);
   }
 }
 
