@@ -15,7 +15,9 @@ plugging it in.
 **Other systems:** write the `.bin` for your chip at address `0x0` with esptool, or in Chrome at
 https://espressif.github.io/esptool-js/.
 
-**From the source:** Arduino IDE with *esp32 by Espressif* and the library *ArduinoJson*; open
+**From the source:** Arduino IDE with *esp32 by Espressif* **3.3.x** (not 4.x) and the libraries
+*ArduinoJson* and (Heltec) *ESP8266 and ESP32 OLED driver for SSD1306 displays*; for a Heltec,
+add `#define BOARD_HELTEC_V3` (or `_V4`) at the top; open
 `esp32-bridge.ino`, partition scheme *Huge APP*, upload.
 
 ## Boards and wiring
@@ -28,6 +30,11 @@ Any ESP32 with Bluetooth LE. Not the ESP32-S2 (no Bluetooth).
 | ESP32-C3 (SuperMini, XIAO C3) | GPIO 20 | GPIO 21 |
 | ESP32-S3 (XIAO S3) | GPIO 44 | GPIO 43 |
 | ESP32-C6 (XIAO C6, DevKit) | GPIO 17 | GPIO 16 |
+| Heltec WiFi LoRa 32 V3 / V4 (screen) | GPIO 47 | GPIO 48 |
+
+The Heltec boards show the bridge's state on their screen: the app connection, the link to
+another bridge, the Wi-Fi address and the bytes to and from the toy. The Windows flasher asks
+which board it is when it finds an ESP32-S3.
 
 Plus **GND to GND**. Three wires only: do not connect the toy's power. The line is 3.3 V.
 If nothing comes through, swap TX and RX. Smallest boards: ESP32-C3 SuperMini (about 22 × 18 mm),

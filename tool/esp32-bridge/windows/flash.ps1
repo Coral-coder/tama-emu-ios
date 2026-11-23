@@ -38,9 +38,20 @@ if ($chip -eq 'ESP32-S2') {
   Read-Host '  Press Enter to close'
   exit 1
 }
-$files = @{ 'ESP32' = 'tama-bridge-esp32.bin'; 'ESP32-C3' = 'tama-bridge-esp32c3.bin'; 'ESP32-S3' = 'tama-bridge-esp32s3.bin'; 'ESP32-C6' = 'tama-bridge-esp32c6.bin' }
+# an ESP32-S3 may be a Heltec board with a screen: ask
+if ($chip -eq 'ESP32-S3') {
+  Write-Host ''
+  Write-Host '  This is an ESP32-S3. Which board?'
+  Write-Host '    1  A plain ESP32-S3 board (XIAO S3, DevKit)'
+  Write-Host '    2  Heltec WiFi LoRa 32 V3 (with screen)'
+  Write-Host '    3  Heltec WiFi LoRa 32 V4 (with screen)'
+  $pick = Read-Host '  1, 2 or 3'
+  if ($pick -eq '2') { $chip = 'Heltec V3' }
+  if ($pick -eq '3') { $chip = 'Heltec V4' }
+}
+$files = @{ 'ESP32' = 'tama-bridge-esp32.bin'; 'ESP32-C3' = 'tama-bridge-esp32c3.bin'; 'ESP32-S3' = 'tama-bridge-esp32s3.bin'; 'ESP32-C6' = 'tama-bridge-esp32c6.bin'; 'Heltec V3' = 'tama-bridge-heltec-v3.bin'; 'Heltec V4' = 'tama-bridge-heltec-v4.bin' }
 $fw = Join-Path $PSScriptRoot $files[$chip]
-$esptoolChip = $chip.ToLower().Replace('-', '')
+$esptoolChip = if ($chip -like 'Heltec*') { 'esp32s3' } else { $chip.ToLower().Replace('-', '') }
 Write-Host ''
 Write-Host "  Found an $chip on $port. Writing $($files[$chip]) ..." -ForegroundColor Green
 & $esptool --chip $esptoolChip --port $port --baud 460800 write_flash 0x0 $fw

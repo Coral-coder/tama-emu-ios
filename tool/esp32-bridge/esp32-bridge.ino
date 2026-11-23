@@ -7,7 +7,8 @@
 // Its settings are kept on the board and changed from the app (Tools -> Dongle) over Bluetooth.
 //
 // Wiring: bridge TX -> toy RX, bridge RX <- toy TX, GND <-> GND (pins per chip below).
-// Needs the library ArduinoJson (Library Manager). Prebuilt files and a Windows flasher are on the
+// Needs the library ArduinoJson, and for the Heltec boards "ESP8266 and ESP32 OLED driver for
+// SSD1306 displays" (Library Manager); the esp32 core 3.3.x (4.x changed the Bluetooth library). Prebuilt files and a Windows flasher are on the
 // repository's Releases page (esp32-bridge-*).
 
 #include <ArduinoJson.h>
@@ -18,10 +19,29 @@
 #include <ESPmDNS.h>
 #include <Preferences.h>
 #include <WiFi.h>
+#ifdef HAS_SCREEN
+#include <SSD1306Wire.h>
+#include <Wire.h>
+#endif
 
 #define FW_VERSION "2.0"
 
-#if CONFIG_IDF_TARGET_ESP32C3
+#if defined(BOARD_HELTEC_V3) || defined(BOARD_HELTEC_V4)
+// Heltec WiFi LoRa 32 V3 / V4 (ESP32-S3 with a 0.96" screen): toy line on header pins 47 / 48
+// (43 / 44 go to the board's own USB chip)
+static const int PIN_RX = 47, PIN_TX = 48;
+#ifdef BOARD_HELTEC_V4
+static const char *CHIP = "Heltec V4";
+#else
+static const char *CHIP = "Heltec V3";
+#endif
+#define HAS_SCREEN 1
+#define SCREEN_SDA 17
+#define SCREEN_SCL 18
+#define SCREEN_RST 21
+#define SCREEN_POWER 36  // Vext: LOW powers the screen
+#define BOARD_LED 35
+#elif CONFIG_IDF_TARGET_ESP32C3
 static const int PIN_RX = 20, PIN_TX = 21;
 static const char *CHIP = "ESP32-C3";
 #elif CONFIG_IDF_TARGET_ESP32S3
@@ -35,7 +55,9 @@ static const int PIN_RX = 34, PIN_TX = 13;  // the original ESP32 (T-LoRa v1.3, 
 static const char *CHIP = "ESP32";
 #endif
 
-#ifdef LED_BUILTIN
+#if defined(BOARD_LED)
+static const int LED = BOARD_LED;
+#elif defined(LED_BUILTIN)
 static const int LED = LED_BUILTIN;
 #else
 static const int LED = 2;
@@ -91,6 +113,8 @@ void saveSettings() {
   prefs.end();
 }
 
+uint32_t bytesIn = 0, bytesOut = 0;  // from / to the toy
+
 // ---- Bluetooth: the app side (server) ---------------------------------------------------------
 BLECharacteristic *txChar = nullptr, *cfgChar = nullptr;
 volatile bool appConnected = false;
@@ -116,6 +140,7 @@ class RxEvents : public BLECharacteristicCallbacks {
   void onWrite(BLECharacteristic *c) override {
     String v = c->getValue();
     if (v.length()) Toy.write((const uint8_t *)v.c_str(), v.length());
+    bytesOut += v.length();
   }
 };
 
@@ -153,7 +178,10 @@ BLERemoteCharacteristic *peerRx = nullptr;
 volatile bool peerConnected = false;
 uint32_t peerRetryAt = 0;
 
-void onPeerData(BLERemoteCharacteristic *, uint8_t *d, size_t n, bool) { Toy.write(d, n); }
+void onPeerData(BLERemoteCharacteristic *, uint8_t *d, size_t n, bool) {
+  Toy.write(d, n);
+  bytesOut += n;
+}
 
 class PeerEvents : public BLEClientCallbacks {
   void onConnect(BLEClient *) override {}
@@ -240,6 +268,40 @@ String wifiIp() {
   if (S.wifiMode == 2 && WiFi.status() == WL_CONNECTED) return WiFi.localIP().toString();
   return "";
 }
+
+// ---- the screen (Heltec boards) ----------------------------------------------------------------
+#ifdef HAS_SCREEN
+SSD1306Wire screen(0x3c, SCREEN_SDA, SCREEN_SCL);
+uint32_t screenAt = 0;
+
+void screenStart() {
+  pinMode(SCREEN_POWER, OUTPUT);
+  digitalWrite(SCREEN_POWER, LOW);
+  pinMode(SCREEN_RST, OUTPUT);
+  digitalWrite(SCREEN_RST, LOW);
+  delay(20);
+  digitalWrite(SCREEN_RST, HIGH);
+  screen.init();
+  screen.flipScreenVertically();
+  screen.setFont(ArialMT_Plain_10);
+}
+
+String wifiIp();
+void screenDraw() {
+  if (millis() < screenAt) return;
+  screenAt = millis() + 500;
+  screen.clear();
+  screen.setFont(ArialMT_Plain_16);
+  screen.drawString(0, 0, S.name);
+  screen.setFont(ArialMT_Plain_10);
+  screen.drawString(0, 18, String("App: ") + (appConnected ? "Bluetooth" : "-") + ((client && client.connected()) ? " + Wi-Fi" : ""));
+  screen.drawString(0, 29, String("Peer: ") + (S.peerOn ? (peerConnected ? "linked" : "looking...") : "off"));
+  String ip = wifiIp();
+  screen.drawString(0, 40, String("Wi-Fi: ") + (ip.length() ? ip : (S.wifiMode == 0 ? "off" : "joining...")));
+  screen.drawString(0, 51, String("Toy ") + S.baud + "  in " + bytesIn + " out " + bytesOut);
+  screen.display();
+}
+#endif
 
 // ---- settings channel ---------------------------------------------------------------------------
 void sendState() {
@@ -353,6 +415,9 @@ void setup() {
   BLEDevice::startAdvertising();
 
   startWifi();
+#ifdef HAS_SCREEN
+  screenStart();
+#endif
   Serial.printf("Tama Bridge %s on %s: \"%s\", toy line %u baud (RX %d, TX %d)\n", FW_VERSION, CHIP, S.name.c_str(), S.baud, PIN_RX, PIN_TX);
 }
 
@@ -370,15 +435,22 @@ void loop() {
   uint8_t buf[512];
   while (client && client.connected() && client.available()) {
     int n = client.read(buf, sizeof(buf));
-    if (n > 0) Toy.write(buf, n);
+    if (n > 0) {
+      Toy.write(buf, n);
+      bytesOut += n;
+    }
   }
   int n = Toy.available();
   if (n > 0) {
     n = Toy.read(buf, min(n, (int)sizeof(buf)));
+    bytesIn += n;
     if (client && client.connected()) client.write(buf, n);
     if (appConnected && txChar) notifyChunks(txChar, buf, n);
     peerSend(buf, n);
   }
+#ifdef HAS_SCREEN
+  screenDraw();
+#endif
   digitalWrite(LED, appConnected || peerConnected || (client && client.connected()) ? HIGH : LOW);
   if (!n) delay(1);
 }

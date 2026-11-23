@@ -26,6 +26,12 @@ jobs:
             fqbn: esp32:esp32:esp32s3:CDCOnBoot=cdc,PartitionScheme=huge_app
           - chip: esp32c6
             fqbn: esp32:esp32:esp32c6:CDCOnBoot=cdc,PartitionScheme=huge_app
+          - chip: heltec-v3
+            fqbn: esp32:esp32:esp32s3:PartitionScheme=huge_app
+            flags: -DBOARD_HELTEC_V3
+          - chip: heltec-v4
+            fqbn: esp32:esp32:esp32s3:PartitionScheme=huge_app
+            flags: -DBOARD_HELTEC_V4
     steps:
       - uses: actions/checkout@v4
       - uses: arduino/setup-arduino-cli@v2
@@ -34,11 +40,12 @@ jobs:
           arduino-cli config init --overwrite
           arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
           arduino-cli core update-index
-          arduino-cli core install esp32:esp32
-          arduino-cli lib install ArduinoJson
+          # 3.3.x: the 4.x core replaced the Bluetooth library the firmware is written for
+          arduino-cli core install esp32:esp32@3.3.0
+          arduino-cli lib install ArduinoJson "ESP8266 and ESP32 OLED driver for SSD1306 displays"
       - name: Build
         run: |
-          arduino-cli compile --fqbn '${{ matrix.fqbn }}' --export-binaries --output-dir out tool/esp32-bridge
+          arduino-cli compile --fqbn '${{ matrix.fqbn }}' --build-property 'compiler.cpp.extra_flags=${{ matrix.flags }}' --export-binaries --output-dir out tool/esp32-bridge
           ls -l out
           cp out/esp32-bridge.ino.merged.bin tama-bridge-${{ matrix.chip }}.bin
       - uses: actions/upload-artifact@v4

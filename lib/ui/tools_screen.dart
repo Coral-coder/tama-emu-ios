@@ -4,6 +4,7 @@ import '../services/app_state.dart';
 import '../services/watch.dart';
 import 'about_screen.dart';
 import 'device_screen.dart';
+import 'dongle_screen.dart';
 import 'hardware_screen.dart';
 import 'library_screen.dart';
 import 'link_screen.dart';
@@ -20,6 +21,7 @@ class ToolsScreen extends StatelessWidget {
       _Tile('ROMs', 'Your games', Icons.auto_awesome_rounded, const Color(0xFF7B5CFF), () => const LibraryScreen()),
       _Tile('Paramix', 'Device: read, write', Icons.usb_rounded, const Color(0xFF2F6BFF), () => const DeviceScreen()),
       _Tile('Link', 'Toys and phones', Icons.hub_rounded, const Color(0xFF2EC4B6), () => const LinkScreen()),
+      _Tile('Dongle', 'Your Tama Bridge', Icons.settings_input_antenna_rounded, const Color(0xFFFF5A5A), () => const DongleScreen()),
       _Tile('Hardware', 'Serial, Bluetooth, Wi-Fi', Icons.cable_rounded, const Color(0xFFFF9F43), () => const HardwareScreen()),
       if (WatchLink.instance.available) _Tile('Watch', 'Tama on your wrist', Icons.watch_rounded, const Color(0xFF6FD96F), () => const _WatchInfo()),
       _Tile('Settings', 'And about', Icons.tune_rounded, const Color(0xFF8A6B4E), () => const AboutScreen()),
