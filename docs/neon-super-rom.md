@@ -30,8 +30,14 @@ as well as its own planets, built from the user's own dumps (nothing of any ROM 
 - Field byte: Tropical/Glacier keep the active field at settings + 0x1EF (78 byte loads/stores in
   the firmware). Neon has none at 0x1EF but 83 at settings + 0x203 = 0x1EF + 0x14 (its settings
   block is 0x14 longer before that point): Neon's planet byte, used by code that mirrors the
-  gen3 field code. Next: pair Neon's 83 sites with Tropical's 78 (function by function, by the
-  surrounding code shape) to find the background, child list and per-field table loads.
+  gen3 field code.
+- Pairing (tool/neon_pair.py, instruction shapes around each place): 65 of Tropical's 78 places
+  have a confident Neon counterpart (shape match 0.75-0.95), at fw offsets shifted by about
+  +0x100 to +0x1200, in the same order: Neon's firmware is a later build of the gen3 code. The
+  adult/teen area (Tropical 0xFEEE -> Neon 0x10942) pairs; the field menu places (Tropical
+  0x4169C..0x418F6) do not: Neon's planet menu is new code and has to be read by hand.
+  Next: from the paired places, the background function, child list and the per-field table
+  movw/movt loads of KINDS.gen3 (six.js) in Neon; then the planet menu.
 
 ## Plan
 
