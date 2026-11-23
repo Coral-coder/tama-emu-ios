@@ -61,3 +61,6 @@ app.*.map.json
 /assets/paramix/
 /android/app/src/main/jniLibs/
 /native/tama_core/target/
+
+# your own icon picture (kept out of the repository)
+assets/icon/custom-icon.*

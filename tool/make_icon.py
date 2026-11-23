@@ -57,8 +57,33 @@ def sprite(size):
     out.paste(big, ((size - big.width) // 2, (size - big.height) // 2), big)
     return out
 
+def from_picture(path, size):
+    """Your own picture as the icon: trimmed to what is drawn, centred with a margin."""
+    im = Image.open(path).convert('RGBA')
+    # a white or flat background around the drawing is taken away
+    px = im.load()
+    w, h = im.size
+    corner = px[0, 0]
+    if corner[3] > 0:
+        for y in range(h):
+            for x in range(w):
+                c = px[x, y]
+                if abs(c[0] - corner[0]) + abs(c[1] - corner[1]) + abs(c[2] - corner[2]) < 24:
+                    px[x, y] = (0, 0, 0, 0)
+    bbox = im.getbbox()
+    if bbox:
+        im = im.crop(bbox)
+    w, h = im.size
+    k = size * 0.78 / max(w, h)
+    im = im.resize((max(1, int(w * k)), max(1, int(h * k))), Image.LANCZOS)
+    out = Image.new('RGBA', (size, size), (0, 0, 0, 0))
+    out.paste(im, ((size - im.width) // 2, (size - im.height) // 2), im)
+    return out
+
 S = 1024
-transparent = sprite(S)
+# Usage: python3 tool/make_icon.py assets/icon [--from my-picture.png]
+picture = sys.argv[sys.argv.index('--from') + 1] if '--from' in sys.argv else None
+transparent = from_picture(picture, S) if picture else sprite(S)
 bg = Image.new('RGBA', (S, S))
 d = ImageDraw.Draw(bg)
 for y in range(S):  # soft sky gradient, blue to lilac
@@ -71,6 +96,9 @@ ios = Image.alpha_composite(bg, transparent).convert('RGB')
 out = sys.argv[1]
 transparent.save(f'{out}/icon-transparent-1024.png')
 ios.save(f'{out}/icon-1024.png')
+import os
+if os.path.isdir('ios/TamaWatch/Assets.xcassets/AppIcon.appiconset'):
+    ios.save('ios/TamaWatch/Assets.xcassets/AppIcon.appiconset/icon-1024.png')
 for f in glob.glob('ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-*.png'):
     m = re.search(r'(\d+(?:\.\d+)?)x\d+(?:\.\d+)?@(\d)x', f)
     px = int(round(float(m.group(1)) * int(m.group(2))))
