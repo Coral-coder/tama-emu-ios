@@ -10,6 +10,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../services/app_state.dart';
 import '../services/serial/ble_transport.dart';
 import '../services/serial/serial_hub.dart';
+import '../services/serial/share.dart';
 import '../services/serial/tcp_transport.dart';
 import '../services/serial/usb_transport.dart';
 import 'theme.dart';
@@ -210,6 +211,30 @@ class _HardwareScreenState extends State<HardwareScreen> {
           ]),
         ),
       ],
+      Padding(padding: const EdgeInsets.fromLTRB(16, 12, 16, 4), child: Text('Share this connection on Wi-Fi', style: title)),
+      ListenableBuilder(
+        listenable: SerialShare.instance,
+        builder: (context, _) {
+          final sh = SerialShare.instance;
+          return Card(
+            child: SwitchListTile(
+              title: const Text('Be a bridge for another phone'),
+              subtitle: Text(sh.on
+                  ? 'On the other phone: Hardware → Wi-Fi, host ${sh.addresses.isEmpty ? 'this phone\'s address' : sh.addresses.join(' or ')}, port ${SerialShare.port}.'
+                      '${sh.peer != null ? '\nConnected: ${sh.peer} · ↔ ${sh.toPeer} / ${sh.fromPeer} bytes' : ''}'
+                  : 'The toy on this phone\'s serial connection (USB adapter, Bluetooth bridge) becomes reachable from another phone on the same Wi-Fi (an iPhone, say).'),
+              value: sh.on,
+              onChanged: (v) async {
+                try {
+                  v ? await sh.start() : await sh.stop();
+                } catch (e) {
+                  if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not share: $e')));
+                }
+              },
+            ),
+          );
+        },
+      ),
       Padding(padding: const EdgeInsets.fromLTRB(16, 12, 16, 4), child: Text('Wi-Fi serial bridge (TCP)', style: title)),
       Card(
         child: Padding(
