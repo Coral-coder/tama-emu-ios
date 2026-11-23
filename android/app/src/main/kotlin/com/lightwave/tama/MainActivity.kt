@@ -33,6 +33,14 @@ class MainActivity : FlutterActivity() {
                     }
                     result.success(null)
                 }
+                "power" -> {
+                    val hold = call.argument<Boolean>("hold") ?: true
+                    val wakeIn = call.argument<Int>("wakeIn") ?: 0
+                    TamaService.cancelWake(this)
+                    if (!hold && wakeIn > 0) TamaService.wakeIn(this, wakeIn)
+                    TamaService.hold(this, hold)
+                    result.success(null)
+                }
                 "keepScreenOn" -> {
                     if (call.argument<Boolean>("on") == true) window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                     else window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -48,11 +56,16 @@ class MainActivity : FlutterActivity() {
                         nm.createNotificationChannel(android.app.NotificationChannel("calls", "Your Tamagotchi calling", android.app.NotificationManager.IMPORTANCE_HIGH))
                     }
                     val open = android.app.PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), android.app.PendingIntent.FLAG_IMMUTABLE)
+                    // the game's screen as it was when the pet called
+                    val screen = call.argument<String>("image")?.let { android.graphics.BitmapFactory.decodeFile(it) }
                     @Suppress("DEPRECATION")
                     val b = if (Build.VERSION.SDK_INT >= 26) android.app.Notification.Builder(this, "calls") else android.app.Notification.Builder(this)
                     nm.notify((System.currentTimeMillis() % 100000).toInt() + 10, b.setContentTitle(call.argument<String>("title") ?: "Tama")
                         .setContentText(call.argument<String>("body") ?: "")
-                        .setSmallIcon(R.mipmap.ic_launcher).setAutoCancel(true).setContentIntent(open).build())
+                        .setSmallIcon(R.drawable.ic_notify).setColor(0xFF0B4A8B.toInt())
+                        .setLargeIcon(screen ?: android.graphics.BitmapFactory.decodeResource(resources, R.mipmap.ic_launcher))
+                        .also { if (screen != null) it.setStyle(android.app.Notification.BigPictureStyle().bigPicture(screen)) }
+                        .setAutoCancel(true).setContentIntent(open).build())
                     result.success(null)
                 }
                 else -> result.notImplemented()

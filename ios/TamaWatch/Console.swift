@@ -84,6 +84,7 @@ final class Console: ObservableObject {
 
   private func pause() {
     looping = false
+    wake.signal()
     emu.sync {}  // the loop has stopped
     tone.set(0)
   }
@@ -91,8 +92,15 @@ final class Console: ObservableObject {
   private func loop() {
     while looping {
       let behind = step()
-      if !behind { Thread.sleep(forTimeInterval: 0.004) }
+      // while the console sleeps (its screen off) a tenth of a second between looks is plenty;
+      // a key or the crown cuts the wait short
+      if !behind { wake.wait(timeout: .now() + (asleep ? 0.1 : 0.004)) }
     }
+  }
+  private let wake = DispatchSemaphore(value: 0)
+  private var asleep = false
+  private func nudge() {
+    if asleep { wake.signal() }
   }
 
   /// One slice of the console. True when it is behind real time (run again at once).
@@ -126,6 +134,7 @@ final class Console: ObservableObject {
     let changed = tama_screen(t, fb) != 0
     let note = tama_note(t)
     let stopped = tama_running(t) == 0
+    asleep = tama_idle_seconds(t) > 0
     core.unlock()
 
     let ratio = dt > 0 ? min(1, Double(done) / (cps * dt)) : 1
@@ -215,6 +224,7 @@ final class Console: ObservableObject {
   func press(_ pin: UInt32) {
     WKInterfaceDevice.current().play(.click)
     _ = withCore { tama_press($0, pin) }
+    nudge()
   }
 
   func release(_ pin: UInt32) {
@@ -242,6 +252,7 @@ final class Console: ObservableObject {
   /// One detent of the crown: a step of the wheel, played by the core in console time.
   func turn(_ right: Bool) {
     _ = withCore { tama_turn($0, right ? 1 : 0) }
+    nudge()
   }
 }
 

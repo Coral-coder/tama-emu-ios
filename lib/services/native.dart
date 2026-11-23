@@ -29,6 +29,22 @@ class NativeBridge {
     }
   }
 
+  static String? _power;
+
+  /// Android, in the background: hold the processor up (a console is awake), or let it rest and
+  /// be woken in [wakeIn] seconds (they all sleep until then). Nothing to do on iOS.
+  static Future<void> power({required bool hold, int wakeIn = 0}) async {
+    if (defaultTargetPlatform != TargetPlatform.android) return;
+    final k = '$hold/$wakeIn';
+    if (k == _power) return;
+    _power = k;
+    try {
+      await _ch.invokeMethod('power', {'hold': hold, 'wakeIn': wakeIn});
+    } catch (e) {
+      debugPrint('power: $e');
+    }
+  }
+
   /// Asks once for permission to post notifications (the pet calling while the app is away).
   static Future<void> askToNotify() async {
     try {
@@ -38,9 +54,10 @@ class NativeBridge {
     }
   }
 
-  static Future<void> notify(String title, String body) async {
+  /// A notification; [image] is a picture file shown with it (the game's screen).
+  static Future<void> notify(String title, String body, {String? image}) async {
     try {
-      await _ch.invokeMethod('notify', {'title': title, 'body': body});
+      await _ch.invokeMethod('notify', {'title': title, 'body': body, 'image': image});
     } catch (e) {
       debugPrint('notify: $e');
     }

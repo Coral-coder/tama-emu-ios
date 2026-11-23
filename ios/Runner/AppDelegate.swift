@@ -47,6 +47,15 @@ import UserNotifications
         c.body = args["body"] as? String ?? ""
         c.sound = .default
         c.threadIdentifier = "tama-calls"
+        // the game's screen as it was when the pet called (the system moves the file it is
+        // given, so it gets a copy)
+        if let path = args["image"] as? String {
+          let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("call-\(UUID().uuidString).png")
+          if (try? FileManager.default.copyItem(at: URL(fileURLWithPath: path), to: tmp)) != nil,
+             let a = try? UNNotificationAttachment(identifier: "screen", url: tmp, options: nil) {
+            c.attachments = [a]
+          }
+        }
         let r = UNNotificationRequest(identifier: "tama-call-\(Date().timeIntervalSince1970)", content: c, trigger: nil)
         UNUserNotificationCenter.current().add(r)
         result(nil)
@@ -75,6 +84,14 @@ final class TamaTone {
 
   init() {
     let nc = NotificationCenter.default
+    // In the background the buzzer may answer late: the audio hardware is woken in big blocks
+    // (a tenth of a second) instead of every few milliseconds.
+    observers.append(nc.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { _ in
+      try? AVAudioSession.sharedInstance().setPreferredIOBufferDuration(0.1)
+    })
+    observers.append(nc.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { _ in
+      try? AVAudioSession.sharedInstance().setPreferredIOBufferDuration(0.01)
+    })
     observers.append(nc.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] n in
       guard let self = self, let raw = n.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
             AVAudioSession.InterruptionType(rawValue: raw) == .ended else { return }
@@ -104,12 +121,22 @@ final class TamaTone {
     let fmt = engine.outputNode.inputFormat(forBus: 0)
     sampleRate = fmt.sampleRate > 0 ? fmt.sampleRate : 44100
     let mono = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
-    let node = AVAudioSourceNode(format: mono) { [weak self] _, _, frameCount, abl -> OSStatus in
+    let node = AVAudioSourceNode(format: mono) { [weak self] silence, _, frameCount, abl -> OSStatus in
       guard let self = self else { return noErr }
       self.lock.lock()
       let f = self.freq, target: Float = self.on ? self.volume : 0
       self.lock.unlock()
       let buffers = UnsafeMutableAudioBufferListPointer(abl)
+      // Between beeps (nearly all the time in the background): zeros, flagged as silence so the
+      // system does no mixing work, and no per-sample maths.
+      if target == 0 && abs(self.level) < 0.0005 {
+        self.level = 0
+        for b in buffers {
+          if let p = b.mData { memset(p, 0, Int(b.mDataByteSize)) }
+        }
+        silence.pointee = true
+        return noErr
+      }
       let step = f / self.sampleRate
       for frame in 0..<Int(frameCount) {
         // a short ramp so on/off do not click

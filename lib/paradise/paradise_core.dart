@@ -77,6 +77,7 @@ class ParadiseCore {
         cyclesPerSecond = l.lookupFunction<_U64N, _U64D>('tama_cycles_per_second')(),
         _syncClock = l.lookupFunction<_ClockN, _ClockD>('tama_sync_clock'),
         _advance = l.lookupFunction<_AdvN, _AdvD>('tama_advance'),
+        _idle = l.lookupFunction<Uint32 Function(Pointer<_Tama>), _IntD>('tama_idle_seconds'),
         _autoDate = l.lookupFunction<_AdvN, _AdvD>('tama_auto_date'),
         _wake = l.lookupFunction<_IntN, _IntD>('tama_wake'),
         _turn = l.lookupFunction<_PinN, _PinD>('tama_turn'),
@@ -126,6 +127,7 @@ class ParadiseCore {
   final int cyclesPerSecond;
   final _ClockD _syncClock;
   final _AdvD _advance;
+  final _IntD _idle;
   final _AdvD _autoDate;
   final _IntD _wake;
   final _PinD _turn;
@@ -189,6 +191,8 @@ class ParadiseHandle {
   int run(int cycles, int budgetMs) => core._run(_t, cycles, budgetMs);
   bool get running => core._running(_t) != 0;
   bool get sleeping => core._sleeping(_t) != 0;
+  /// Seconds the console stays parked by itself (until its alarm), 0 while awake.
+  int get idleSeconds => core._idle(_t);
   void press(int pin) => core._press(_t, pin);
   void release(int pin) => core._release(_t, pin);
   double note() => core._note(_t);

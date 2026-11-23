@@ -51,6 +51,7 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Runs the Tamagotchi emulator in real time while the app is in the background" />
         </service>
+        <receiver android:name=".TamaWake" android:exported="false" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

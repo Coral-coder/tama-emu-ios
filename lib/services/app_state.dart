@@ -206,14 +206,20 @@ class AppState extends ChangeNotifier {
       return null;
     }
     final dump = await library.romFile(e);
-    final m = ParadiseMachine(core: core, dumpPath: dump.path, savePath: library.paradiseSave(e).path, title: e.name)
+    late final ParadiseMachine m;
+    m = ParadiseMachine(core: core, dumpPath: dump.path, savePath: library.paradiseSave(e).path, title: e.name)
       ..sound = sound
       ..keepScreenOn = keepScreenOn
       ..autoCareBits = autoCare(e)
       ..onCall = (t) {
         final name = t.replaceFirst('Tamagotchi Paradise · ', '');
-        NativeBridge.notify(name, 'Your Tamagotchi is calling you.');
-        if (watchCalls) WatchLink.instance.call(name);
+        final why = callReason(m.pet());
+        unawaited(() async {
+          // the game's screen as it is right now goes with the call
+          final pic = await _callPicture(m);
+          await NativeBridge.notify(name, why, image: pic);
+        }());
+        if (watchCalls) WatchLink.instance.call(name, why);
       };
     unawaited(NativeBridge.askToNotify());
     final r = m.boot(key ?? paradiseKey(e));
@@ -255,6 +261,48 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _rememberRunning() => prefs.setStringList('runningGames', games.keys.toList());
+
+  /// Why the pet calls, from its state in the game's memory.
+  static String callReason(PetState? p) {
+    if (p == null) return 'Your Tamagotchi is calling you.';
+    final w = <String>[
+      if (p.sick != 0) 'is sick',
+      if (p.hunger == 0) 'is hungry' else if (p.hunger <= 1) 'is getting hungry',
+      if (p.happy == 0) 'is unhappy' else if (p.happy <= 3) 'wants to play',
+    ];
+    if (w.isEmpty) return 'Your Tamagotchi is calling you (it may need cleaning, bed or a look).';
+    final s = w.length == 1 ? w.first : '${w.sublist(0, w.length - 1).join(', ')} and ${w.last}';
+    return 'Your Tamagotchi $s.';
+  }
+
+  /// The game's screen now, as a picture file for the notification (null while it is dark).
+  Future<String?> _callPicture(ParadiseMachine m) async {
+    try {
+      final s = m.screen;
+      if (s.every((v) => v == 0)) return null;
+      final rgba = Uint8List(128 * 128 * 4);
+      for (var i = 0; i < s.length; i++) {
+        final v = s[i];
+        rgba[i * 4] = ((v >> 11) & 31) * 255 ~/ 31;
+        rgba[i * 4 + 1] = ((v >> 5) & 63) * 255 ~/ 63;
+        rgba[i * 4 + 2] = (v & 31) * 255 ~/ 31;
+        rgba[i * 4 + 3] = 255;
+      }
+      final png = await compute(_png4x, rgba);
+      final f = File('${library.docs.path}/shots/call.png');
+      await f.parent.create(recursive: true);
+      await f.writeAsBytes(png, flush: true);
+      return f.path;
+    } catch (e) {
+      debugPrint('call picture: $e');
+      return null;
+    }
+  }
+
+  /// Four times bigger with hard pixels: notifications smooth what they are given.
+  static Uint8List _png4x(Uint8List rgba) => img.encodePng(img.copyResize(
+      img.Image.fromBytes(width: 128, height: 128, bytes: rgba.buffer, numChannels: 4),
+      width: 512, height: 512, interpolation: img.Interpolation.nearest));
 
   /// The last picture of a game's screen (shown on its card while it is not running).
   File shotFile(String id) => File('${library.docs.path}/shots/$id.png');

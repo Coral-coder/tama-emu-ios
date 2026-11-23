@@ -52,7 +52,7 @@ final class PhoneLink: NSObject, WCSessionDelegate {
     DispatchQueue.main.async { WKInterfaceDevice.current().play(.notification) }
     let c = UNMutableNotificationContent()
     c.title = name
-    c.body = "Your Tamagotchi is calling you."
+    c.body = info["why"] as? String ?? "Your Tamagotchi is calling you."
     c.sound = .default
     UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "call-\(Date().timeIntervalSince1970)", content: c, trigger: nil))
   }

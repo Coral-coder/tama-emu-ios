@@ -65,10 +65,10 @@ class WatchLink {
   }
 
   /// The pet is calling: the watch pops up a notification with sound and a tap on the wrist.
-  Future<void> call(String name) async {
+  Future<void> call(String name, [String? why]) async {
     if (!available) return;
     try {
-      await _ch.invokeMethod('call', {'name': name});
+      await _ch.invokeMethod('call', {'name': name, 'why': why});
     } catch (e) {
       debugPrint('watch call: $e');
     }

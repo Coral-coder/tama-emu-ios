@@ -58,7 +58,8 @@ final class WatchBridge: NSObject, WCSessionDelegate {
       // the pet calls: a live message when the watch app is reachable, else queued user info
       // (delivered when the watch can take it); the watch pops a notification with sound
       guard WCSession.isSupported(), WCSession.default.activationState == .activated, WCSession.default.isWatchAppInstalled else { return result(nil) }
-      let info: [String: Any] = ["call": args["name"] as? String ?? "Tama", "at": Date().timeIntervalSince1970]
+      let info: [String: Any] = ["call": args["name"] as? String ?? "Tama", "why": args["why"] as? String ?? "Your Tamagotchi is calling you.",
+                                 "at": Date().timeIntervalSince1970]
       if WCSession.default.isReachable {
         WCSession.default.sendMessage(info, replyHandler: nil) { _ in WCSession.default.transferUserInfo(info) }
       } else {

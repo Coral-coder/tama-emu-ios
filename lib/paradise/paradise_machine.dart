@@ -53,7 +53,11 @@ class ParadiseMachine extends ChangeNotifier {
     _h = h;
     error = null;
     start();
-    _saveTimer = Timer.periodic(const Duration(seconds: 2), (_) => save());
+    // the save is written when it changed: every 2 s on screen, every 30 s in the background
+    var n = 0;
+    _saveTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      if (!_bg || ++n % 15 == 0) save();
+    });
     return 1;
   }
 
@@ -64,14 +68,64 @@ class ParadiseMachine extends ChangeNotifier {
       ..start();
     _lastUs = 0;
     _due = 0;
-    _timer = Timer.periodic(Duration(milliseconds: _bg ? 200 : 16), (_) => _frame());
+    _schedule(Duration.zero);
     notifyListeners();
+  }
+
+  /// The next slice. On screen: 60 a second (10 while the console sleeps, a key brings it back
+  /// at once). In the background: once a second while it is awake, and while it sleeps not
+  /// before its alarm (at most a minute): nothing can happen before then, and the phone stays
+  /// asleep in between.
+  void _schedule(Duration d) {
+    _timer?.cancel();
+    _timer = Timer(d, _tick);
+  }
+
+  int _nextMs = 16;
+  void _tick() {
+    _frame();
+    final h = _h;
+    if (_timer == null || h == null) return;
+    if (!h.running) return;
+    if (!_bg) {
+      _nextMs = h.sleeping && link == null ? 100 : 16;
+      _plan(this, 0);
+    } else {
+      final idle = link == null ? h.idleSeconds : 0;
+      _nextMs = idle > 1 ? (idle.clamp(1, 60) * 1000) : 1000;
+      _plan(this, idle > 1 ? idle : 0);
+    }
+    _schedule(Duration(milliseconds: _nextMs));
+  }
+
+  /// Every running console's wish: 0 needs the processor now, n sleeps n seconds by itself.
+  static final Map<ParadiseMachine, int> _wishes = {};
+  static void _plan(ParadiseMachine m, int? idle) {
+    if (idle == null) {
+      _wishes.remove(m);
+    } else {
+      _wishes[m] = idle;
+    }
+    if (_wishes.isEmpty) return;
+    final awake = _wishes.values.any((v) => v == 0);
+    // Android: while they all sleep the processor rests, woken by an alarm a moment before the
+    // first console's own (a minute at most: the alarm is re-armed on every look)
+    NativeBridge.power(hold: awake, wakeIn: awake ? 0 : _wishes.values.reduce((a, b) => a < b ? a : b).clamp(1, 3600));
+  }
+
+  /// A key or the dial: on screen the console answers at once, also from its slow sleeping pace.
+  void _kick() {
+    if (_timer != null && !_bg && _nextMs > 16) {
+      _nextMs = 16;
+      _schedule(Duration.zero);
+    }
   }
 
   void pause() {
     releaseAll();
     _timer?.cancel();
     _timer = null;
+    _plan(this, null);
     _tone(0);
     save();
     notifyListeners();
@@ -84,7 +138,9 @@ class ParadiseMachine extends ChangeNotifier {
     var dt = (now - _lastUs) / 1e6;
     _lastUs = now;
     // The phone held the app (suspended, or a long stall): the console's clock chip kept counting.
-    if (dt > 2) {
+    // (a background tick that waited for the alarm is run, not jumped: the core skips the parked
+    // time itself and rings the alarm on the second)
+    if (dt > (_bg && _nextMs > 1000 ? 65 : 2)) {
       h.advance(dt.floor());
       dt -= dt.floor();
     }
@@ -95,7 +151,9 @@ class ParadiseMachine extends ChangeNotifier {
     // Never more than a short slice of work at a time (the screen must stay smooth, also with
     // other games living in the background). What cannot be run in time is not lost: the
     // console's clock skips it, as the toy's clock chip keeps counting while it sleeps.
-    final cap = (_bg ? 1.0 : 0.25) * cps * speed;
+    // (in the background a sleeping console runs whole minutes in one go: it is parked, the core
+    // skips straight to its alarm, so that costs next to nothing)
+    final cap = (_bg ? (_nextMs > 1000 ? 61.0 : 1.5) : 0.25) * cps * speed;
     if (_due > cap) {
       _skipped += (_due - cap) / cps;
       _due = cap;
@@ -106,7 +164,7 @@ class ParadiseMachine extends ChangeNotifier {
       }
     }
     final want = _due.floor();
-    final done = (want > 0 ? h.run(want, _bg ? 6 : 12) : 0).clamp(0, want > 0 ? want : 0);
+    final done = (want > 0 ? h.run(want, _bg ? 30 : 12) : 0).clamp(0, want > 0 ? want : 0);
     _due -= done;
     if (dt > 0) load = load * 0.9 + 0.1 * (done / (cps * speed * dt)).clamp(0, 1);
     // in the background the screen is still read, once a second: the game cards show it live
@@ -141,8 +199,8 @@ class ParadiseMachine extends ChangeNotifier {
     if (v == _bg) return;
     _bg = v;
     if (_timer != null) {
-      _timer!.cancel();
-      _timer = Timer.periodic(Duration(milliseconds: _bg ? 200 : 16), (_) => _frame());
+      _nextMs = _bg ? 1000 : 16;
+      _schedule(Duration.zero);
     }
   }
   bool keepScreenOn = false;
@@ -181,14 +239,20 @@ class ParadiseMachine extends ChangeNotifier {
   /// The link this console is on (another game, or a real unit), pumped every frame.
   ParadiseLink? link;
 
-  void press(int pin) => _h?.press(pin);
+  void press(int pin) {
+    _h?.press(pin);
+    _kick();
+  }
   /// Nothing stays held (the app went to the background, a sheet opened over the keys).
   void releaseAll() => _h?.releaseAll();
   void release(int pin) => _h?.release(pin);
 
   /// One step of the wheel: played by the core in console time, so no edge is lost between
   /// two frames (a quick spin of the dial queues its steps).
-  Future<void> turn(bool right) async => _h?.turn(right);
+  Future<void> turn(bool right) async {
+    _h?.turn(right);
+    _kick();
+  }
 
   /// The reset button: the console restarts on its save, the clock set again from the phone.
   void reset() {
@@ -287,6 +351,7 @@ class ParadiseMachine extends ChangeNotifier {
   @override
   void dispose() {
     _timer?.cancel();
+    _plan(this, null);
     _saveTimer?.cancel();
     save();
     _tone(0);

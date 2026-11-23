@@ -164,7 +164,8 @@ pub unsafe extern "C" fn tama_run(t: *mut Tama, cycles: u64, budget_ms: u32) -> 
         // burn the phone's battery for nothing: the time is skipped ahead instead, a tenth of a
         // second at a time, so the alarm rings on time and the firmware wakes as on the toy.
         if t.saut_de_veille() {
-            let pas = (cycles - done).min(CYCLES_PAR_SECONDE as u64 / 10);
+            // straight to the alarm (or 10 s at a time): nothing else can happen while parked
+            let pas = (cycles - done).min(t.cycles_avant_alarme()).min(10 * CYCLES_PAR_SECONDE as u64).max(1);
             t.m.periph.snsys.tick(pas as u32);
             if t.m.periph.snsys.reveil_demande {
                 // the clock's alarm woke it, not a key: the power block says so (a key wake left
@@ -369,6 +370,20 @@ impl Tama {
             ram[p + 0x10] = 0;
         }
         true
+    }
+
+    /// Console cycles until the clock block's alarm rings (no alarm: a long time).
+    fn cycles_avant_alarme(&self) -> u64 {
+        use emulator::peripherals::SnSysRegisters as Sys;
+        let s = &self.m.periph.snsys;
+        let echeance = s.read_reg(Sys::ALARME);
+        if echeance == 0 || s.secondes > echeance {
+            return u64::MAX;
+        }
+        // it rings once the counter has gone past the deadline; the part of the current second
+        // already counted is not known here, so the last second goes by in tenths
+        let secondes = (echeance - s.secondes) as u64;
+        (secondes * CYCLES_PAR_SECONDE as u64).max(CYCLES_PAR_SECONDE as u64 / 10)
     }
 
     /// Whether the run can skip ahead: asleep, no alarm pending, nothing to press or turn.
@@ -804,6 +819,17 @@ pub unsafe extern "C" fn tama_advance(t: *mut Tama, seconds: u32) {
     if echeance != 0 && avant <= echeance && s.secondes > echeance {
         s.declencher_reveil();
     }
+}
+
+/// Seconds the console will stay parked in deep sleep by itself (until its alarm; 3600 when no
+/// alarm is set), 0 while it is awake. In the background nothing needs to run before then.
+#[no_mangle]
+pub unsafe extern "C" fn tama_idle_seconds(t: *mut Tama) -> u32 {
+    let t = &*t;
+    if !t.m.is_running || !t.saut_de_veille() {
+        return 0;
+    }
+    (t.cycles_avant_alarme() / CYCLES_PAR_SECONDE as u64).min(3600) as u32
 }
 
 /// For the next `seconds` of console time, the date screens are confirmed by themselves (a new
