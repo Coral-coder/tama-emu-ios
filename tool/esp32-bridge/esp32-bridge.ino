@@ -20,22 +20,38 @@
 // Pins of the serial line to the toy. On the T-LoRa v1.3 these are free (not used by the LoRa
 // radio or the OLED). GPIO 34 can only be an input, which is all RX needs. Change them if your
 // board's pins are taken; avoid 0, 2, 5, 12, 14, 15, 18, 19, 26, 27 on the T-LoRa.
-static const int PIN_RX = 34;  // from the toy's TX
+#if CONFIG_IDF_TARGET_ESP32C3
+static const int PIN_RX = 20;  // ESP32-C3 (SuperMini, XIAO C3): the pins marked RX / TX
+static const int PIN_TX = 21;
+#elif CONFIG_IDF_TARGET_ESP32S3
+static const int PIN_RX = 44;  // ESP32-S3 (XIAO S3 and most S3 boards): the pins marked RX / TX
+static const int PIN_TX = 43;
+#else
+static const int PIN_RX = 34;  // the original ESP32 (T-LoRa v1.3, DevKit): from the toy's TX
 static const int PIN_TX = 13;  // to the toy's RX
+#endif
 static const uint32_t BAUD = 460800;  // the Paradise link port; first toys' comm boards: change
 
 static const char *BLE_NAME = "Tama Bridge";
 static const char *WIFI_NAME = "Tama-Bridge";
 static const char *WIFI_PASS = "tamagotchi";  // 8 characters or more
 static const uint16_t TCP_PORT = 23;
-static const int LED = 2;  // the T-LoRa's LED: on while the app is connected
+#ifdef LED_BUILTIN
+static const int LED = LED_BUILTIN;  // the board's LED: on while the app is connected
+#else
+static const int LED = 2;
+#endif
 // ------------------------------------------------------------------------------------------------
 
 #define NUS_SERVICE "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
 #define NUS_RX "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"  // the app writes here
 #define NUS_TX "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"  // the bridge notifies here
 
+#if CONFIG_IDF_TARGET_ESP32
 HardwareSerial Toy(2);
+#else
+HardwareSerial Toy(1);  // the C3 and S3 have no third serial port
+#endif
 BLECharacteristic *txChar = nullptr;
 volatile bool bleConnected = false;
 uint16_t blePayload = 20;  // grows with the MTU the phone agrees to
