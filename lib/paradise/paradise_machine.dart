@@ -346,6 +346,12 @@ class ParadiseMachine extends ChangeNotifier {
   }
 
   bool snapshot(String path) => _h?.snapshot(path) ?? false;
+
+  /// The ROM with this game's save in it, ready to flash to the real toy.
+  bool exportFlash(String path) {
+    save();
+    return _h?.exportFlash(path) ?? false;
+  }
   bool restore(String path) => _h?.restore(path) ?? false;
 
   @override

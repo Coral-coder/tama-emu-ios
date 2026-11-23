@@ -73,6 +73,7 @@ class ParadiseCore {
         _note = l.lookupFunction<_NoteN, _NoteD>('tama_note'),
         _sleeping = l.lookupFunction<_IntN, _IntD>('tama_sleeping'),
         _snapshot = l.lookupFunction<_PathN, _PathD>('tama_snapshot'),
+        _exportFlash = l.lookupFunction<_PathN, _PathD>('tama_export_flash'),
         _restore = l.lookupFunction<_PathN, _PathD>('tama_restore'),
         cyclesPerSecond = l.lookupFunction<_U64N, _U64D>('tama_cycles_per_second')(),
         _syncClock = l.lookupFunction<_ClockN, _ClockD>('tama_sync_clock'),
@@ -123,6 +124,7 @@ class ParadiseCore {
   final _PinD _press, _release;
   final _NoteD _note;
   final _IntD _sleeping;
+  final _PathD _exportFlash;
   final _PathD _snapshot, _restore;
   final int cyclesPerSecond;
   final _ClockD _syncClock;
@@ -302,6 +304,8 @@ class ParadiseHandle {
   }
 
   bool snapshot(String path) => _withPath(path, (c) => core._snapshot(_t, c)) == 0;
+  /// The 16 MB flash as the toy would hold it now (the dump with this save), ready to flash.
+  bool exportFlash(String path) => _withPath(path, (c) => core._exportFlash(_t, c)) == 0;
   bool restore(String path) => _withPath(path, (c) => core._restore(_t, c)) == 0;
 
   /// The 128 x 128 screen (RGB565); returns true when it changed since the last call.

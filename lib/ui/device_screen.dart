@@ -17,7 +17,11 @@ import 'theme.dart';
 /// The Paradise on the UART adapter (USB OTG): read it and write a ROM to it: the
 /// device tab of Paramix Studio, native.
 class DeviceScreen extends StatefulWidget {
-  const DeviceScreen({super.key});
+  const DeviceScreen({super.key, this.image, this.imageName});
+
+  /// A ROM to write (the game with your save in it); without it the write asks which ROM.
+  final Uint8List? image;
+  final String? imageName;
 
   @override
   State<DeviceScreen> createState() => _DeviceScreenState();
@@ -33,12 +37,15 @@ class _DeviceScreenState extends State<DeviceScreen> {
   double? _progress;
   final List<String> _log = [];
   bool _onlyChanged = true, _keepSaves = true, _rescue = true;
+  // with the game's own save to write, the device's save is replaced by it
+  late final bool _withSave = widget.image != null;
   Uint8List? _flashApp;
   Timer? _usbPoll;
 
   @override
   void initState() {
     super.initState();
+    if (_withSave) _keepSaves = false;
     _refreshUsb();
     _usbPoll = Timer.periodic(const Duration(seconds: 3), (_) {
       if (!hub.connected) _refreshUsb();
@@ -157,7 +164,10 @@ class _DeviceScreenState extends State<DeviceScreen> {
   Future<void> _write() async {
     final lib = AppState.instance.library;
     final roms = lib.entries.where((e) => e.kind == RomKind.paradise).toList();
-    final pick = await showModalBottomSheet<RomEntry>(
+    final given = widget.image;
+    final pick = given != null
+        ? null
+        : await showModalBottomSheet<RomEntry>(
       context: context,
       builder: (c) => SafeArea(
         child: ListView(shrinkWrap: true, children: [
@@ -166,8 +176,9 @@ class _DeviceScreenState extends State<DeviceScreen> {
         ]),
       ),
     );
-    if (pick == null || !mounted) return;
-    final img = await lib.bytes(pick);
+    if ((given == null && pick == null) || !mounted) return;
+    final img = given ?? await lib.bytes(pick!);
+    final name = given != null ? (widget.imageName ?? 'your game with its save') : pick!.name;
     final ed = edition(img);
     if (!mounted) return;
     final yes = await showDialog<bool>(
@@ -175,7 +186,7 @@ class _DeviceScreenState extends State<DeviceScreen> {
       builder: (c) => AlertDialog(
         title: const Text('Write to the device?'),
         content: Text(
-          '${pick.name}${ed != null ? ' (${ed.name})' : ''} → Paradise ${_dev!.info!.name}\n\n'
+          '$name${ed != null ? ' (${ed.name})' : ''} → Paradise ${_dev!.info!.name}\n\n'
           '${_onlyChanged ? 'Only the sectors that differ are written.' : 'The whole flash is written.'} '
           '${_keepSaves ? 'The device keeps its save.' : 'The save on the device is replaced.'}\n\n'
           'Keep the device switched on and the cable in until it is done. Read a backup first if you have none.',
@@ -187,7 +198,7 @@ class _DeviceScreenState extends State<DeviceScreen> {
       ),
     );
     if (yes != true) return;
-    await _task('Writing ${pick.name}', () async {
+    await _task('Writing $name', () async {
       final dev = _dev!;
       dev.cancelRequested = false;
       final r = await dev.write(img, onlyChanged: _onlyChanged, keepSaves: _keepSaves, rescueApp: _rescue ? _flashApp : null, progress: _prog);
@@ -257,7 +268,7 @@ class _DeviceScreenState extends State<DeviceScreen> {
                 const SizedBox(height: 8),
                 OutlinedButton.icon(onPressed: _busy ? null : _read, icon: const Icon(Icons.download), label: const Text('Read the device (backup to the library)')),
                 const SizedBox(height: 8),
-                OutlinedButton.icon(onPressed: _busy ? null : _write, icon: const Icon(Icons.upload), label: const Text('Write a ROM to the device …')),
+                OutlinedButton.icon(onPressed: _busy ? null : _write, icon: const Icon(Icons.upload), label: Text(_withSave ? 'Write my game with its save to the toy' : 'Write a ROM to the device …')),
                 SwitchListTile(dense: true, title: const Text('Only changes'), value: _onlyChanged, onChanged: (v) => setState(() => _onlyChanged = v)),
                 SwitchListTile(dense: true, title: const Text('Keep the saves on the device'), value: _keepSaves, onChanged: (v) => setState(() => _keepSaves = v)),
                 SwitchListTile(

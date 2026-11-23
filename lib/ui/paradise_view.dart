@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'device_screen.dart';
+import 'package:share_plus/share_plus.dart';
+import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/services.dart';
@@ -111,6 +114,43 @@ class _ParadiseViewState extends State<ParadiseView> {
         _img = im;
       });
     });
+  }
+
+  /// The ROM with this game's save in it: written to the real toy (over the dongle), or shared.
+  Future<void> _toToy(BuildContext context) async {
+    final app = AppState.instance;
+    final id = app.focused;
+    final rom = id == null ? null : app.gameRoms[id];
+    final name = '${(rom?.name ?? 'Tama').replaceAll(RegExp(r'[^A-Za-z0-9 _.-]'), '_')} with my save.bin';
+    await app.library.studioOut.create(recursive: true);
+    final f = File('${app.library.studioOut.path}/$name');
+    if (!m.exportFlash(f.path)) {
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('The ROM could not be written.')));
+      return;
+    }
+    final img = await f.readAsBytes();
+    if (!context.mounted) return;
+    final what = await showModalBottomSheet<String>(
+      context: context,
+      builder: (c) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          ListTile(title: Text(name), subtitle: const Text('Your game\'s ROM with this save in it, as it is right now. Kept in Files → Tama → studio.')),
+          ListTile(
+            leading: const Icon(Icons.usb_rounded),
+            title: const Text('Write it to my toy now'),
+            subtitle: const Text('Over the dongle: only what changed is written, the toy continues with this save.'),
+            onTap: () => Navigator.pop(c, 'write'),
+          ),
+          ListTile(leading: const Icon(Icons.ios_share), title: const Text('Share / save elsewhere'), onTap: () => Navigator.pop(c, 'share')),
+        ]),
+      ),
+    );
+    if (!context.mounted) return;
+    if (what == 'write') {
+      await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => DeviceScreen(image: img, imageName: name)));
+    } else if (what == 'share') {
+      await SharePlus.instance.share(ShareParams(files: [XFile(f.path)], subject: name));
+    }
   }
 
   /// The phone's keyboard for the game's naming screens: what is typed is entered letter by letter
@@ -291,6 +331,8 @@ class _ParadiseViewState extends State<ParadiseView> {
                 case 'unlink':
                   _second = false;
                   await app.unlink();
+                case 'totoy':
+                  await _toToy(context);
                 case 'stop':
                   await app.showGames();
                 case 'quit':
@@ -309,6 +351,7 @@ class _ParadiseViewState extends State<ParadiseView> {
               if (app.link == null) const PopupMenuItem(value: 'unit', child: Text('Link with my real unit')),
               if (app.link != null) const PopupMenuItem(value: 'unlink', child: Text('Unlink')),
               if (WatchLink.instance.available) const PopupMenuItem(value: 'watch', child: Text('Send to Apple Watch now')),
+              const PopupMenuItem(value: 'totoy', child: ListTile(leading: Icon(Icons.upload), title: Text('Put this save on my real toy'))),
               const PopupMenuItem(value: 'stop', child: Text('Back to the games (it lives on)')),
               const PopupMenuItem(value: 'quit', child: Text('Stop this game')),
             ],

@@ -28,6 +28,7 @@ int32_t tama_sync_clock(Tama *t, uint64_t local_secs_since_2025);
 void tama_auto_date(Tama *t, uint32_t seconds);
 void tama_advance(Tama *t, uint32_t seconds);
 uint32_t tama_idle_seconds(Tama *t);
+int32_t tama_export_flash(const Tama *t, const char *path);
 uint64_t tama_waits_skipped(const Tama *t);
 /// Wakes the console from its power-save sleep. 1 when it was asleep.
 int32_t tama_wake(Tama *t);

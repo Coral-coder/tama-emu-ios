@@ -784,6 +784,17 @@ pub unsafe extern "C" fn tama_sleeping(t: *const Tama) -> i32 {
 }
 
 /// Snapshot of the whole machine (CPU, memories, peripherals) to a file. 0 ok, -1 error.
+/// Writes the whole 16 MB flash as the toy holds it now: the original dump with the game's save
+/// in it (0x1000.. and 0xEFE000..). Flashed to the real toy, it carries on with this save.
+#[no_mangle]
+pub unsafe extern "C" fn tama_export_flash(t: *const Tama, path: *const c_char) -> i32 {
+    let Some(p) = path_of(path) else { return -1 };
+    match std::fs::write(p, &(*t).m.bus.flash.data) {
+        Ok(()) => 0,
+        Err(_) => -1,
+    }
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn tama_snapshot(t: *const Tama, path: *const c_char) -> i32 {
     let Some(p) = path_of(path) else { return -1 };
