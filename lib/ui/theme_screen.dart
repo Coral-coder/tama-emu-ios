@@ -63,7 +63,11 @@ class _ThemeScreenState extends State<ThemeScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Theme')),
       body: ListView(padding: const EdgeInsets.all(16), children: [
-        Center(child: SizedBox(width: 240, height: 300, child: ShellPreview(theme: t))),
+        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          SizedBox(width: 200, height: 250, child: ShellPreview(theme: t)),
+          const SizedBox(width: 16),
+          SizedBox(width: 110, height: 110, child: CustomPaint(painter: _BigDial(t))),
+        ]),
         const SizedBox(height: 18),
         Text('Ready-made', style: title),
         const SizedBox(height: 8),
@@ -102,7 +106,7 @@ class _ThemeScreenState extends State<ThemeScreen> {
         const SizedBox(height: 16),
         Text('Dial', style: title),
         const SizedBox(height: 4),
-        const Text('Up to four colours; hold one to take it away.', style: TextStyle(fontSize: 12, color: Colors.white54)),
+        const Text('Ring, face, then the two arrows. Hold a colour to take it away.', style: TextStyle(fontSize: 12, color: Colors.white54)),
         const SizedBox(height: 8),
         Wrap(spacing: 12, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
           for (var i = 0; i < t.dial.length; i++)
@@ -130,6 +134,12 @@ class _ThemeScreenState extends State<ThemeScreen> {
           for (final p in DialPattern.values)
             ChoiceChip(label: Text(p.label), selected: t.pattern == p, onSelected: (_) => _set(t.copyWith(pattern: p))),
         ]),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Turning arrows on the dial'),
+          value: t.arrows,
+          onChanged: (v) => _set(t.copyWith(arrows: v)),
+        ),
         const SizedBox(height: 30),
       ]),
     );
@@ -180,9 +190,20 @@ class _MiniShell extends CustomPainter {
       canvas.drawCircle(o, r, Paint()..color = t.buttons);
     }
     // the dial, on the side
-    paintDialFace(canvas, Offset(w * 0.5, h * 0.92), w * 0.09, t, 0);
+    paintDial(canvas, Offset(w * 0.5, h * 0.9), w * 0.1, t, 0);
   }
 
   @override
   bool shouldRepaint(_MiniShell o) => true;
+}
+
+class _BigDial extends CustomPainter {
+  _BigDial(this.t);
+  final ShellTheme t;
+
+  @override
+  void paint(Canvas canvas, Size size) => paintDial(canvas, size.center(Offset.zero), size.width / 2, t, 0.4);
+
+  @override
+  bool shouldRepaint(_BigDial o) => true;
 }

@@ -475,48 +475,7 @@ class _DialPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final c = size.center(Offset.zero);
-    final r = size.width / 2;
-    canvas.drawCircle(
-      c + const Offset(0, 4),
-      r - 2,
-      Paint()
-        ..color = Colors.black87
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
-    );
-    final th = AppState.instance.shellTheme;
-    paintDialFace(canvas, c, r - 2, th, angle);
-    // knurled rim, turning with the finger
-    final tick = Paint()
-      ..color = Colors.black.withValues(alpha: 0.30)
-      ..strokeWidth = 2.5
-      ..strokeCap = StrokeCap.round;
-    for (var i = 0; i < 30; i++) {
-      final a = angle + i * 6.28318 / 30;
-      final dir = Offset.fromDirection(a);
-      canvas.drawLine(c + dir * (r * 0.78), c + dir * (r * 0.92), tick);
-    }
-    // the marker dot
-    canvas.drawCircle(c + Offset.fromDirection(angle - 1.5708) * (r * 0.62), r * 0.07, Paint()..color = th.buttons);
-    canvas.drawCircle(
-      c + Offset.fromDirection(angle - 1.5708) * (r * 0.62),
-      r * 0.07,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.5
-        ..color = Colors.black38,
-    );
-    // the hub (push)
-    canvas.drawCircle(c + const Offset(0, 2), r * 0.24, Paint()..color = Colors.black38);
-    canvas.drawCircle(c, r * 0.24, Paint()..color = pressed ? Color.lerp(th.buttons, Colors.black, 0.25)! : th.buttons);
-    final tp = TextPainter(
-      text: TextSpan(
-        text: 'push',
-        style: TextStyle(color: th.onButtons, fontSize: 12, fontWeight: FontWeight.w800),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    tp.paint(canvas, c - Offset(tp.width / 2, tp.height / 2));
+    paintDial(canvas, size.center(Offset.zero), size.width / 2, AppState.instance.shellTheme, angle, pressed: pressed);
   }
 
   @override

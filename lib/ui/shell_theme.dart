@@ -5,6 +5,7 @@ import 'package:material_ui/material_ui.dart';
 
 /// How the dial's face is painted.
 enum DialPattern {
+  glitter('Glitter'),
   solid('Solid'),
   stripes('Stripes'),
   rays('Rays'),
@@ -27,6 +28,7 @@ class ShellTheme {
     required this.buttons,
     required this.dial,
     this.pattern = DialPattern.solid,
+    this.arrows = true,
   });
 
   final String name;
@@ -35,6 +37,8 @@ class ShellTheme {
   final Color buttons;
   final List<Color> dial; // 1 to 4
   final DialPattern pattern;
+  /// The two turning arrows on the dial's face (as on the toy).
+  final bool arrows;
 
   bool get split => shell2 != null;
   Color get lower => shell2 ?? shell;
@@ -43,7 +47,7 @@ class ShellTheme {
   Color get onShell => shell.computeLuminance() > 0.45 ? const Color(0xFF2A1E2E) : Colors.white;
   Color get onButtons => buttons.computeLuminance() > 0.45 ? const Color(0xFF2A1E2E) : Colors.white;
 
-  ShellTheme copyWith({String? name, Color? shell, Color? shell2, bool clearShell2 = false, Color? buttons, List<Color>? dial, DialPattern? pattern}) =>
+  ShellTheme copyWith({String? name, Color? shell, Color? shell2, bool clearShell2 = false, Color? buttons, List<Color>? dial, DialPattern? pattern, bool? arrows}) =>
       ShellTheme(
         name: name ?? this.name,
         shell: shell ?? this.shell,
@@ -51,6 +55,7 @@ class ShellTheme {
         buttons: buttons ?? this.buttons,
         dial: dial ?? this.dial,
         pattern: pattern ?? this.pattern,
+        arrows: arrows ?? this.arrows,
       );
 
   Map<String, dynamic> toJson() => {
@@ -60,6 +65,7 @@ class ShellTheme {
         'buttons': buttons.toARGB32(),
         'dial': [for (final c in dial) c.toARGB32()],
         'pattern': pattern.name,
+        'arrows': arrows,
       };
 
   static ShellTheme fromJson(Map<String, dynamic> j) => ShellTheme(
@@ -69,6 +75,7 @@ class ShellTheme {
         buttons: Color(j['buttons'] as int),
         dial: [for (final c in (j['dial'] as List)) Color(c as int)],
         pattern: DialPattern.values.firstWhere((p) => p.name == j['pattern'], orElse: () => DialPattern.solid),
+        arrows: j['arrows'] as bool? ?? true,
       );
 
   String encode() => jsonEncode(toJson());
@@ -81,7 +88,15 @@ class ShellTheme {
     }
   }
 
+  /// The dial's colours, in order: the knurled ring, the face, the two arrows.
+  Color get ring => dial.isNotEmpty ? dial[0] : buttons;
+  Color get face => dial.length > 1 ? dial[1] : const Color(0xFF2A2340);
+  Color get arrow1 => dial.length > 2 ? dial[2] : const Color(0xFF3FD8A0);
+  Color get arrow2 => dial.length > 3 ? dial[3] : const Color(0xFFE6F23A);
+
   static const presets = [
+    ShellTheme(name: 'Periwinkle', shell: Color(0xFFE9E6FA), shell2: Color(0xFF8C8FE6), buttons: Color(0xFF5A5FC8),
+        dial: [Color(0xFF8088E0), Color(0xFF2A2340), Color(0xFF3FD8A0), Color(0xFFE6F23A)], pattern: DialPattern.glitter),
     ShellTheme(name: 'Bubblegum', shell: Color(0xFFFF8CC6), shell2: Color(0xFFB98CFF), buttons: Color(0xFFFFE066), dial: [Color(0xFFFFFFFF), Color(0xFFFF8CC6)], pattern: DialPattern.stripes),
     ShellTheme(name: 'Night sky', shell: Color(0xFF1B1F3B), shell2: Color(0xFF3A2C6B), buttons: Color(0xFFFFB000), dial: [Color(0xFF3A2C6B), Color(0xFFFFE066)], pattern: DialPattern.stars),
     ShellTheme(name: 'Mint', shell: Color(0xFF8EE3C8), buttons: Color(0xFFFF7A90), dial: [Color(0xFFFFFFFF), Color(0xFF8EE3C8), Color(0xFFFF7A90)], pattern: DialPattern.dots),
@@ -124,9 +139,62 @@ class ShellBackground extends StatelessWidget {
   }
 }
 
-/// Paints a dial's face in the theme's colours and pattern, turned by [angle].
+/// The whole dial, as on the toy: a knurled ring, a face (glitter or a pattern) under a clear
+/// dome, two turning arrows, and the small silver push button in the middle. Turned by [angle].
+void paintDial(Canvas canvas, Offset c, double r, ShellTheme t, double angle, {bool pressed = false}) {
+  // shadow under the knob
+  canvas.drawCircle(c + Offset(0, r * 0.06), r * 0.95, Paint()..color = Colors.black38..maskFilter = MaskFilter.blur(BlurStyle.normal, r * 0.08));
+  // the knurled ring: bumps all round, turning with the finger
+  final ring = Paint()..color = t.ring;
+  canvas.drawCircle(c, r * 0.88, ring);
+  for (var i = 0; i < 24; i++) {
+    final a = angle + i * 2 * math.pi / 24;
+    canvas.drawCircle(c + Offset.fromDirection(a, r * 0.88), r * 0.085, ring);
+  }
+  canvas.drawCircle(c, r * 0.88, Paint()
+    ..shader = RadialGradient(center: const Alignment(-0.35, -0.45), radius: 1.0, colors: [Colors.white.withValues(alpha: 0.30), Colors.transparent, Colors.black.withValues(alpha: 0.18)], stops: const [0, 0.55, 1])
+        .createShader(Rect.fromCircle(center: c, radius: r)));
+  // the bezel and the face
+  canvas.drawCircle(c, r * 0.74, Paint()..color = Color.lerp(t.ring, Colors.black, 0.28)!);
+  final fr = r * 0.68;
+  paintDialFace(canvas, c, fr, t, angle);
+  // the two arrows going round
+  if (t.arrows) {
+    _arrow(canvas, c, fr * 0.62, fr * 0.2, angle + 0.35, 2.25, t.arrow1);
+    _arrow(canvas, c, fr * 0.62, fr * 0.2, angle + 0.35 + math.pi, 2.25, t.arrow2);
+  }
+  // the clear dome over the face
+  canvas.drawCircle(c, fr, Paint()
+    ..shader = RadialGradient(center: const Alignment(-0.45, -0.55), radius: 0.9, colors: [Colors.white.withValues(alpha: 0.38), Colors.white.withValues(alpha: 0.0)])
+        .createShader(Rect.fromCircle(center: c, radius: fr)));
+  canvas.drawCircle(c, fr, Paint()..style = PaintingStyle.stroke..strokeWidth = r * 0.03..color = Colors.white.withValues(alpha: 0.35));
+  // the silver push button
+  final br = r * 0.17;
+  canvas.drawCircle(c + Offset(0, br * 0.12), br, Paint()..color = Colors.black45);
+  canvas.drawCircle(c, br, Paint()
+    ..shader = RadialGradient(center: const Alignment(-0.3, -0.4), colors: pressed ? const [Color(0xFFB8B8B8), Color(0xFF6E6E6E)] : const [Color(0xFFFFFFFF), Color(0xFF9C9C9C)])
+        .createShader(Rect.fromCircle(center: c, radius: br)));
+  canvas.drawCircle(c, br * 0.55, Paint()..color = Colors.white.withValues(alpha: pressed ? 0.15 : 0.45));
+}
+
+void _arrow(Canvas canvas, Offset c, double radius, double width, double start, double sweep, Color color) {
+  final p = Paint()
+    ..color = color
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = width
+    ..strokeCap = StrokeCap.butt;
+  canvas.drawArc(Rect.fromCircle(center: c, radius: radius), start, sweep, false, p);
+  // the head, pointing along the circle
+  final end = start + sweep;
+  final tip = c + Offset.fromDirection(end + 0.32, radius);
+  final outer = c + Offset.fromDirection(end, radius + width * 0.95);
+  final inner = c + Offset.fromDirection(end, radius - width * 0.95);
+  canvas.drawPath(Path()..moveTo(outer.dx, outer.dy)..lineTo(tip.dx, tip.dy)..lineTo(inner.dx, inner.dy)..close(), Paint()..color = color);
+}
+
+/// Paints a dial's face (the part under the dome) in the theme's colours and pattern.
 void paintDialFace(Canvas canvas, Offset c, double r, ShellTheme t, double angle) {
-  final cols = t.dial.isEmpty ? [const Color(0xFF3B342D)] : t.dial;
+  final cols = [t.face, if (t.dial.length > 2) t.arrow1 else Color.lerp(t.face, Colors.white, 0.3)!, if (t.dial.length > 3) t.arrow2, t.ring];
   final rect = Rect.fromCircle(center: c, radius: r);
   canvas.save();
   canvas.clipPath(Path()..addOval(rect));
@@ -134,12 +202,18 @@ void paintDialFace(Canvas canvas, Offset c, double r, ShellTheme t, double angle
   final n = cols.length;
   Paint p(int i) => Paint()..color = cols[i % n];
   switch (t.pattern) {
-    case DialPattern.solid:
-      if (n > 1) {
-        for (var i = 1; i < n; i++) {
-          canvas.drawCircle(c, r * (1 - i / (n + 0.5)), p(i));
-        }
+    case DialPattern.glitter:
+      // holographic glitter: specks of every colour, sparkling as the dial turns
+      final rnd = math.Random(11);
+      for (var i = 0; i < 260; i++) {
+        final a = angle + rnd.nextDouble() * 2 * math.pi;
+        final d = r * math.sqrt(rnd.nextDouble());
+        final hue = (rnd.nextDouble() * 360 + angle * 40) % 360;
+        final col = HSVColor.fromAHSV(0.55 + 0.45 * rnd.nextDouble(), hue, 0.65, 1).toColor();
+        canvas.drawCircle(c + Offset.fromDirection(a, d), r * (0.012 + 0.02 * rnd.nextDouble()), Paint()..color = col);
       }
+    case DialPattern.solid:
+      break;
     case DialPattern.stripes:
       canvas.translate(c.dx, c.dy);
       canvas.rotate(angle);
@@ -194,10 +268,6 @@ void paintDialFace(Canvas canvas, Offset c, double r, ShellTheme t, double angle
       }
   }
   canvas.restore();
-  // a soft shine and rim, so the dial reads as a knob
-  canvas.drawCircle(c, r, Paint()
-    ..shader = RadialGradient(center: const Alignment(-0.4, -0.5), radius: 1.1, colors: [Colors.white.withValues(alpha: 0.28), Colors.transparent]).createShader(rect));
-  canvas.drawCircle(c, r - 1.5, Paint()..style = PaintingStyle.stroke..strokeWidth = 3..color = Colors.black.withValues(alpha: 0.35));
 }
 
 void _star(Canvas canvas, Offset c, double r, Paint p) {
