@@ -1301,3 +1301,20 @@ pub unsafe extern "C" fn tama_mem_freeze(t: *mut Tama, region: u32, addr: u32, d
 pub unsafe extern "C" fn tama_mem_unfreeze_all(t: *mut Tama) {
     (*t).gels.clear();
 }
+
+/// Debugging (examples only, feature "stats"): what still runs through Capybara.
+#[doc(hidden)]
+pub unsafe fn print_recomp_stats(t: *mut Tama) {
+    #[cfg(feature = "stats")]
+    {
+        let s = &(*t).recomp.stats;
+        let tot: u64 = s.values().sum();
+        let mut v: Vec<_> = s.iter().collect();
+        v.sort_by(|a, b| b.1.cmp(a.1));
+        println!("native: {:.1}%", *s.get(&0).unwrap_or(&0) as f64 * 100.0 / tot.max(1) as f64);
+        for (k, n) in v.iter().filter(|x| *x.0 != 0).take(40) {
+            println!("  {:04X}  {:5.2}%", k, **n as f64 * 100.0 / tot as f64);
+        }
+    }
+    let _ = t;
+}

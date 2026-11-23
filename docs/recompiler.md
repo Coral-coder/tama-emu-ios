@@ -40,6 +40,11 @@ and frame rate (iPhone, Apple Watch, Android), without changing what the game do
 1b. Stage 1, pre-decoded blocks run by Capybara's executors (done, on by default): 1.40-1.46x
    faster on Water, Neon, Glacier, Jade (examples/recomp_check.rs: same screens, sounds and
    sleep/wake times; a few dozen bytes of work RAM differ after 20 s, from frame timing).
-2. Block builder and decoder for the hot kinds, interpreter fallback for the rest.
+2. Stage 2, native operations (done, on): branches, BL, immediate and register data
+   processing (16 and 32 bit), shifts, high registers, every load/store form, SP adjust,
+   MOVW/MOVT, literal loads folded into constants. 92 % of executed instructions native.
+   examples/recomp_verify.rs runs each native op against Capybara from the same state:
+   0 differences over 60 M instructions on Water, Neon, Tropical. 1.80-1.82x the
+   interpreter on Water, Glacier, Jade; Neon's 4-minute sleep/wake trace is unchanged.
 3. Lockstep tester on all editions; fix until it matches for minutes of play.
 4. Switch the app's core to it (phone, watch, Android), measure battery and frame rate.
