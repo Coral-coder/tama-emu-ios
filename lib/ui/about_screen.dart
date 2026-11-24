@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../services/app_state.dart';
 import '../services/native.dart';
+import '../services/updater.dart';
 
 class AboutScreen extends StatelessWidget {
   const AboutScreen({super.key});
@@ -14,6 +15,16 @@ class AboutScreen extends StatelessWidget {
       body: ListenableBuilder(
         listenable: app,
         builder: (context, _) => ListView(children: [
+          if (Updater.instance.supported)
+            ValueListenableBuilder(
+              valueListenable: Updater.instance.progress,
+              builder: (context, p, _) => ListTile(
+                leading: const Icon(Icons.system_update),
+                title: const Text('Check for updates'),
+                subtitle: p != null ? LinearProgressIndicator(value: p) : const Text('New builds come from the GitHub releases and install over this one.'),
+                onTap: p != null ? null : () => Updater.instance.offer(context, quiet: false),
+              ),
+            ),
           SwitchListTile(
             title: const Text('Run in the background'),
             subtitle: const Text('The toy keeps running live while the app is in the background (iOS: audio session; Android: a notification).'),

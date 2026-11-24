@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import 'services/app_state.dart';
+import 'services/updater.dart';
 import 'ui/play_screen.dart';
 import 'ui/theme.dart';
 import 'ui/tools_screen.dart';
@@ -52,11 +53,18 @@ class Shell extends StatefulWidget {
 
 class _ShellState extends State<Shell> with WidgetsBindingObserver {
   final _built = <int>{0};
+  DateTime _lastCheck = DateTime.now();
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // Android: a newer release on GitHub is offered once the app is up
+    if (Updater.instance.supported) {
+      Future<void>.delayed(const Duration(seconds: 4), () {
+        if (mounted) Updater.instance.offer(context);
+      });
+    }
   }
 
   @override
@@ -74,6 +82,11 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
         app.onBackground();
       case AppLifecycleState.resumed:
         app.onForeground();
+        // back after a while: look for an update again (at most every 6 hours)
+        if (Updater.instance.supported && DateTime.now().difference(_lastCheck).inHours >= 6) {
+          _lastCheck = DateTime.now();
+          Updater.instance.offer(context);
+        }
       default:
         break;
     }

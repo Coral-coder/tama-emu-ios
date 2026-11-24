@@ -41,6 +41,30 @@ class MainActivity : FlutterActivity() {
                     TamaService.hold(this, hold)
                     result.success(null)
                 }
+                "appVersion" -> {
+                    val pi = packageManager.getPackageInfo(packageName, 0)
+                    @Suppress("DEPRECATION")
+                    val code = if (Build.VERSION.SDK_INT >= 28) pi.longVersionCode.toInt() else pi.versionCode
+                    result.success(code)
+                }
+                "installApk" -> {
+                    // the downloaded update, handed to Android's installer (the user confirms)
+                    try {
+                        if (Build.VERSION.SDK_INT >= 26 && !packageManager.canRequestPackageInstalls()) {
+                            startActivity(Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                android.net.Uri.parse("package:$packageName")))
+                            result.success("Allow Tama to install updates, then press Update again.")
+                        } else {
+                            val f = java.io.File(call.argument<String>("path")!!)
+                            val uri = androidx.core.content.FileProvider.getUriForFile(this, "$packageName.updates", f)
+                            startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive")
+                                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK))
+                            result.success("ok")
+                        }
+                    } catch (e: Exception) {
+                        result.success("The installer did not open: ${e.message}")
+                    }
+                }
                 "keepScreenOn" -> {
                     if (call.argument<Boolean>("on") == true) window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                     else window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)

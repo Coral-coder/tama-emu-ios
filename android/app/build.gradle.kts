@@ -67,4 +67,6 @@ flutter {
 dependencies {
     // USB serial drivers (CDC-ACM, CH34x, CP210x, FTDI, PL2303 ...)
     implementation("com.github.mik3y:usb-serial-for-android:3.12.0")
+    // FileProvider: hands a downloaded update to the installer
+    implementation("androidx.core:core:1.13.1")
 }
