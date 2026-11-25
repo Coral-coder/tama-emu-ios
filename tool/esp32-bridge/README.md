@@ -34,7 +34,7 @@ Any ESP32 with Bluetooth LE. Not the ESP32-S2 (no Bluetooth).
 | ESP32-S3 (XIAO S3) | GPIO 44 | GPIO 43 |
 | ESP32-C6 (XIAO C6, DevKit) | GPIO 17 | GPIO 16 |
 | Heltec WiFi LoRa 32 V3 / V4 (screen) | GPIO 47 | GPIO 48 |
-| LilyGO T-LoRa (T3) V1.6.1 (screen) | GPIO 34 | GPIO 13 |
+| LilyGO T-LoRa (T3) V1.6.1 (screen) | GPIO 34 (JP2 pin 10) | GPIO 4 (JP2 pin 2) |
 
 Wiring picture for the T-LoRa V1.6.1: [docs/img/tlora-v161-wiring.png](../../docs/img/tlora-v161-wiring.png)
 

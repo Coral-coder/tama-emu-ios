@@ -42,9 +42,11 @@ static const char *CHIP = "Heltec V3";
 #define SCREEN_POWER 36  // Vext: LOW powers the screen
 #define BOARD_LED 35
 #elif defined(BOARD_TLORA_V161)
-// LilyGO T-LoRa (T3) V1.6.1, ESP32 with a 0.96" screen: toy line on header pins 34 / 13 as on
-// the other classic ESP32 boards (the LoRa radio keeps 5, 14, 18, 19, 26, 27; 35 reads the battery)
-static const int PIN_RX = 34, PIN_TX = 13;
+// LilyGO T-LoRa (T3) V1.6.1, ESP32 with a 0.96" screen (LilyGO's schematic T3_V1.6.1): toy line
+// on the right header JP2, RX = IO34 (pin 10), TX = IO4 (pin 2); GND on JP1 pin 2 or 4. The LoRa
+// radio has 5, 18, 19, 23, 26, 27, 32, 33, the SD card slot 2, 13, 14, 15, the screen 21, 22,
+// the battery 35, the LED 25.
+static const int PIN_RX = 34, PIN_TX = 4;
 static const char *CHIP = "T-LoRa V1.6.1";
 #define HAS_SCREEN 1
 #define SCREEN_SDA 21
