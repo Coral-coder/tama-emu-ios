@@ -19,7 +19,7 @@
 #include <ESPmDNS.h>
 #include <Preferences.h>
 #include <WiFi.h>
-#if defined(BOARD_HELTEC_V3) || defined(BOARD_HELTEC_V4)
+#if defined(BOARD_HELTEC_V3) || defined(BOARD_HELTEC_V4) || defined(BOARD_TLORA_V161)
 #include <SSD1306Wire.h>
 #include <Wire.h>
 #endif
@@ -41,6 +41,15 @@ static const char *CHIP = "Heltec V3";
 #define SCREEN_RST 21
 #define SCREEN_POWER 36  // Vext: LOW powers the screen
 #define BOARD_LED 35
+#elif defined(BOARD_TLORA_V161)
+// LilyGO T-LoRa (T3) V1.6.1, ESP32 with a 0.96" screen: toy line on header pins 34 / 13 as on
+// the other classic ESP32 boards (the LoRa radio keeps 5, 14, 18, 19, 26, 27; 35 reads the battery)
+static const int PIN_RX = 34, PIN_TX = 13;
+static const char *CHIP = "T-LoRa V1.6.1";
+#define HAS_SCREEN 1
+#define SCREEN_SDA 21
+#define SCREEN_SCL 22
+#define BOARD_LED 25
 #elif CONFIG_IDF_TARGET_ESP32C3
 static const int PIN_RX = 20, PIN_TX = 21;
 static const char *CHIP = "ESP32-C3";
@@ -272,18 +281,22 @@ String wifiIp() {
   return "";
 }
 
-// ---- the screen (Heltec boards) ----------------------------------------------------------------
+// ---- the screen (Heltec boards, T-LoRa V1.6.1) ----------------------------------------------------------------
 #ifdef HAS_SCREEN
 SSD1306Wire screen(0x3c, SCREEN_SDA, SCREEN_SCL);
 uint32_t screenAt = 0;
 
 void screenStart() {
+#ifdef SCREEN_POWER
   pinMode(SCREEN_POWER, OUTPUT);
   digitalWrite(SCREEN_POWER, LOW);
+#endif
+#ifdef SCREEN_RST
   pinMode(SCREEN_RST, OUTPUT);
   digitalWrite(SCREEN_RST, LOW);
   delay(20);
   digitalWrite(SCREEN_RST, HIGH);
+#endif
   screen.init();
   screen.flipScreenVertically();
   screen.setFont(ArialMT_Plain_10);

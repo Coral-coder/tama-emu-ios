@@ -34,6 +34,9 @@ jobs:
           - chip: heltec-v4
             fqbn: esp32:esp32:esp32s3:PartitionScheme=huge_app
             flags: -DBOARD_HELTEC_V4
+          - chip: tlora-v161
+            fqbn: esp32:esp32:esp32:PartitionScheme=huge_app
+            flags: -DBOARD_TLORA_V161
     steps:
       - uses: actions/checkout@v4
       - uses: arduino/setup-arduino-cli@v2
@@ -126,6 +129,7 @@ jobs:
                     open("site/manifest.json", "w"), indent=1)
           json.dump(m("Tama Bridge (Heltec V3)", [("ESP32-S3", "tama-bridge-heltec-v3.bin")]), open("site/manifest-heltec-v3.json", "w"), indent=1)
           json.dump(m("Tama Bridge (Heltec V4)", [("ESP32-S3", "tama-bridge-heltec-v4.bin")]), open("site/manifest-heltec-v4.json", "w"), indent=1)
+          json.dump(m("Tama Bridge (T-LoRa V1.6.1)", [("ESP32", "tama-bridge-tlora-v161.bin")]), open("site/manifest-tlora-v161.json", "w"), indent=1)
           PY
           ls -l site
       - uses: actions/configure-pages@v5

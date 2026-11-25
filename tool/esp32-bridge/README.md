@@ -34,6 +34,7 @@ Any ESP32 with Bluetooth LE. Not the ESP32-S2 (no Bluetooth).
 | ESP32-S3 (XIAO S3) | GPIO 44 | GPIO 43 |
 | ESP32-C6 (XIAO C6, DevKit) | GPIO 17 | GPIO 16 |
 | Heltec WiFi LoRa 32 V3 / V4 (screen) | GPIO 47 | GPIO 48 |
+| LilyGO T-LoRa (T3) V1.6.1 (screen) | GPIO 34 | GPIO 13 |
 
 The Heltec boards show the bridge's state on their screen: the app connection, the link to
 another bridge, the Wi-Fi address and the bytes to and from the toy. The Windows flasher asks

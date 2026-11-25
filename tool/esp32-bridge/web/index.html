@@ -39,6 +39,11 @@
       <esp-web-install-button manifest="manifest-heltec-v3.json"><button slot="activate">Install</button></esp-web-install-button>
     </div>
     <div class="card">
+      <h2>LilyGO T-LoRa V1.6.1</h2>
+      <p>T3 V1.6.1 (ESP32), with its screen showing the bridge's state.</p>
+      <esp-web-install-button manifest="manifest-tlora-v161.json"><button slot="activate">Install</button></esp-web-install-button>
+    </div>
+    <div class="card">
       <h2>Heltec WiFi LoRa 32 V4</h2>
       <p>With its screen showing the bridge's state.</p>
       <esp-web-install-button manifest="manifest-heltec-v4.json"><button slot="activate">Install</button></esp-web-install-button>
@@ -53,6 +58,7 @@
     <tr><td>ESP32-S3</td><td>GPIO 44</td><td>GPIO 43</td></tr>
     <tr><td>ESP32-C6</td><td>GPIO 17</td><td>GPIO 16</td></tr>
     <tr><td>Heltec V3 / V4</td><td>GPIO 47</td><td>GPIO 48</td></tr>
+    <tr><td>LilyGO T-LoRa V1.6.1</td><td>GPIO 34</td><td>GPIO 13</td></tr>
   </table>
   <p class="note">Plus GND to GND. Three wires only: do not connect the toy's power. Not the ESP32-S2 (no Bluetooth). If the board is not found: install its USB driver (CP210x or CH340), or hold BOOT while plugging it in.</p>
   <p class="note">Then in the Tama app: <b>Tools → Dongle</b> to change its settings, <b>Tools → Hardware</b> to use it. A Windows flasher (no browser needed) is on the <a href="https://github.com/Coral-coder/tama-emu-ios/releases">Releases page</a>.</p>
