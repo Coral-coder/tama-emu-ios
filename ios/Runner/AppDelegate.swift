@@ -35,6 +35,10 @@ import UserNotifications
       case "keepAlive":
         self.tone.keepAlive(args["on"] as? Bool ?? false)
         result(nil)
+      case "openSettings":
+        // Tama's page in the Settings app (Bluetooth, notifications)
+        if let u = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(u) }
+        result(nil)
       case "keepScreenOn":
         UIApplication.shared.isIdleTimerDisabled = args["on"] as? Bool ?? false
         result(nil)

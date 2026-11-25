@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'native.dart';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -31,7 +32,13 @@ class Dongle extends ChangeNotifier {
 
   /// Bridges in reach (they advertise the Nordic UART service).
   Stream<List<ScanResult>> scan() {
-    FlutterBluePlus.startScan(withServices: [BleTransport.nusService], timeout: const Duration(seconds: 6));
+    error = null;
+    FlutterBluePlus.startScan(withServices: [BleTransport.nusService], timeout: const Duration(seconds: 6)).catchError((Object e) {
+      error = NativeBridge.bluetoothRefused(e)
+          ? 'Tama is not allowed to use Bluetooth. Turn it on in Settings → Tama → Bluetooth, then look again.'
+          : 'Scan: $e';
+      notifyListeners();
+    });
     return FlutterBluePlus.scanResults;
   }
 

@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../services/native.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -38,6 +39,8 @@ class _HardwareScreenState extends State<HardwareScreen> {
   String? _usbWhy;
   StreamSubscription<List<ScanResult>>? _scanSub;
   String? _err;
+  static const _btRefused = 'Tama is not allowed to use Bluetooth. Turn on Bluetooth for Tama in its settings '
+      '(Settings → Tama → Bluetooth), then scan again.';
 
   static const bauds = [9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600];
 
@@ -92,7 +95,7 @@ class _HardwareScreenState extends State<HardwareScreen> {
       await FlutterBluePlus.startScan(timeout: const Duration(seconds: 8));
       await FlutterBluePlus.isScanning.where((s) => !s).first;
     } catch (e) {
-      _err = 'Scan: $e';
+      _err = NativeBridge.bluetoothRefused(e) ? _btRefused : 'Scan: $e';
     }
     if (mounted) setState(() => _scanning = false);
   }
@@ -133,6 +136,11 @@ class _HardwareScreenState extends State<HardwareScreen> {
           children: [
             _connection(context),
             if (_err != null) Padding(padding: const EdgeInsets.all(12), child: Text(_err!, style: const TextStyle(color: Colors.redAccent))),
+            if (_err == _btRefused)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: FilledButton.icon(onPressed: NativeBridge.openSettings, icon: const Icon(Icons.settings), label: const Text('Open Tama\'s settings')),
+              ),
             if (!hub.connected) ..._connectOptions(context),
             if (hub.connected) _terminal(context),
             const _HelpCard(),

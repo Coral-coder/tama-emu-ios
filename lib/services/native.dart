@@ -63,6 +63,18 @@ class NativeBridge {
     }
   }
 
+  /// Opens Tama's page in the system settings (Bluetooth permission, notifications).
+  static Future<void> openSettings() async {
+    try {
+      await _ch.invokeMethod('openSettings');
+    } catch (e) {
+      debugPrint('openSettings: $e');
+    }
+  }
+
+  /// Bluetooth refused by the user (iOS: "unauthorized"): a plain explanation instead of the error.
+  static bool bluetoothRefused(Object e) => '$e'.contains('Unauthorized') || '$e'.contains('unauthorized');
+
   /// Keeps the phone's screen from locking while a game is shown.
   static Future<void> keepScreenOn(bool on) async {
     try {
