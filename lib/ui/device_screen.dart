@@ -1,4 +1,5 @@
 import 'dart:io';
+import '../services/native.dart';
 import 'dart:async';
 
 import 'package:flutter/services.dart';
@@ -121,6 +122,10 @@ class _DeviceScreenState extends State<DeviceScreen> {
       _phase = what;
       _progress = null;
     });
+    // a transfer takes minutes: the app stays alive in the background and the screen stays on
+    final app = AppState.instance;
+    await NativeBridge.keepAlive(true, title: 'Tama', text: what);
+    await NativeBridge.keepScreenOn(true);
     try {
       await f();
     } on FlashError catch (e) {
@@ -128,6 +133,8 @@ class _DeviceScreenState extends State<DeviceScreen> {
     } catch (e) {
       _say('✗ $e');
     } finally {
+      await NativeBridge.keepScreenOn(false);
+      if (!(app.backgroundRun && (app.games.isNotEmpty || app.machine != null))) await NativeBridge.keepAlive(false);
       if (mounted) {
         setState(() {
           _busy = false;
@@ -144,7 +151,10 @@ class _DeviceScreenState extends State<DeviceScreen> {
         final link = FlashLink(hub.input, hub.write);
         _link = link;
         if (hub.transport?.canSetBaud ?? false) await hub.setBaud(paradiseBaud);
-        final (dev, loaded) = await connectParadise(link, _flashApp!, _prog);
+        // a Bluetooth bridge: short reads (long answers lose bytes on the way to the phone)
+        final ble = hub.transport?.kind == 'BLE';
+        final (dev, loaded) = await connectParadise(link, _flashApp!, _prog,
+            readBlock: ble ? 1024 : null, onReadBlock: (n) => _say('Slow link: reading $n bytes at a time'));
         _dev = dev;
         final i = dev.info!;
         _say('✓ Paradise ${i.name}${loaded ? ' (flash app loaded)' : ''} · flash ${(i.capacity >> 20)} MB, JEDEC ${i.jedec.toRadixString(16)}');

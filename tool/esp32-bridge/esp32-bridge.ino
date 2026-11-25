@@ -24,7 +24,7 @@
 #include <Wire.h>
 #endif
 
-#define FW_VERSION "2.0"
+#define FW_VERSION "2.1"
 
 #if defined(BOARD_HELTEC_V3) || defined(BOARD_HELTEC_V4)
 // Heltec WiFi LoRa 32 V3 / V4 (ESP32-S3 with a 0.96" screen): toy line on header pins 47 / 48
@@ -175,7 +175,9 @@ void notifyChunks(BLECharacteristic *c, const uint8_t *d, size_t n) {
     size_t k = min((size_t)payload, n - o);
     c->setValue((uint8_t *)d + o, k);
     c->notify();
-    delay(2);
+    // paced to what a phone takes (about 25 KB/s): faster, the Bluetooth stack drops packets
+    // and a long answer from the toy arrives with holes
+    delay(n > payload ? 10 : 2);
   }
 }
 

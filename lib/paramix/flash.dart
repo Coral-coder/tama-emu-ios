@@ -397,21 +397,41 @@ class Paradise {
     if (i == null || i.capacity != flashSize || i.flashError != 0) throw FlashError('notReady', 'flash not ready');
   }
 
+  /// Bytes asked for per read. A Bluetooth bridge loses bytes of long answers (notifications
+  /// sent faster than the phone takes them), so reads start smaller there and shrink by
+  /// themselves when answers do not arrive whole, down to one that fits a single packet.
+  int? readBlock;
+  void Function(int size)? onReadBlock;
+
   Future<Uint8List> read(int off, int len) async {
     final out = Uint8List(len);
-    final blk = block;
-    for (var o = 0; o < len; o += blk) {
+    var o = 0;
+    var fails = 0;
+    while (o < len) {
+      final blk = min(readBlock ?? block, block);
+      final want = min(blk, len - o);
       PauFrame? r;
-      for (var t = 0; t < 5 && r == null; t++) {
-        try {
-          final x = await link.request(cmdRead, off + o, le32(blk));
-          if (x.payload.length == blk && x.status == 0) r = x;
-        } on FlashTimeout {
-          // again
-        }
+      try {
+        final x = await link.request(cmdRead, off + o, le32(blk), blk <= 256 ? 2500 : 4000);
+        if (x.payload.length >= want && x.status == 0) r = x;
+      } on FlashTimeout {
+        // again, smaller
       }
-      if (r == null) throw FlashError('readErr', 'read error at ${hex(off + o)}');
-      out.setAll(o, r.payload.sublist(0, min(blk, len - o)));
+      if (r == null) {
+        fails++;
+        link.frames.clear();
+        if (blk > 128) {
+          readBlock = blk ~/ 2;
+          onReadBlock?.call(readBlock!);
+          fails = 0;
+        } else if (fails >= 6) {
+          throw FlashError('readErr', 'read error at ${hex(off + o)}');
+        }
+        continue;
+      }
+      fails = 0;
+      out.setAll(o, r.payload.sublist(0, want));
+      o += want;
     }
     return out;
   }
@@ -654,8 +674,11 @@ class Paradise {
 }
 
 /// Opens the device: talks to the flash app, or loads it first from the download screen.
-Future<(Paradise, bool)> connectParadise(FlashLink link, Uint8List flashApp, void Function(String phase, int done, int total)? status) async {
-  final dev = Paradise(link);
+Future<(Paradise, bool)> connectParadise(FlashLink link, Uint8List flashApp, void Function(String phase, int done, int total)? status,
+    {int? readBlock, void Function(int size)? onReadBlock}) async {
+  final dev = Paradise(link)
+    ..readBlock = readBlock
+    ..onReadBlock = onReadBlock;
   try {
     await dev.hello(2500);
     return (dev, false);
