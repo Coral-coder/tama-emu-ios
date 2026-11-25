@@ -63,9 +63,9 @@ const crcFix = (p) => { const c = S.crc16arc(p, 4, 0x1000); p[0] = c & 255; p[1]
     P('paraClock', [S.paraClock(sv, 1700000100), S.paraClock(sv, 1699999999), S.paraClock(sv, 1700000000 + 4294967296 + 5), S.paraClock(Object.assign({}, sv, { counter: 0 }), 1700000100), S.paraClock(Object.assign({}, sv, { stamp: 0 }), 1700000100), S.paraClock(Object.assign({}, sv, { counter: 0xFFFFFFF0 }), 1700000100)].join(' '));
     const set = S.paraSettings(sv, ed), set0 = S.paraSettings(sv);
     P('paraSettings', (set ? sha(set) : 'null') + ' ' + (set0 ? sha(set0) : 'null'));
-    for (let e2 = 1; e2 <= 8; e2++) P('paraPet.ed' + e2, JSON.stringify(S.paraPet(sv, e2)));
+    for (let e2 = 1; e2 <= 8; e2++) P('paraPet.ed' + e2, sha(JSON.stringify(S.paraPet(sv, e2))));
     // pet edits: exact bytes of the written save
-    const petOut = (n, f) => P('paraPetSet.' + n, err(() => { const r = f(); return JSON.stringify(S.paraPet(r, ed)) + ' ' + pagesSha(r.pages) + ' ' + sha(S.paraWrite(r)); }));
+    const petOut = (n, f) => P('paraPetSet.' + n, err(() => { const r = f(); return sha(JSON.stringify(S.paraPet(r, ed))) + ' ' + pagesSha(r.pages) + ' ' + sha(S.paraWrite(r)); }));
     for (const lv of [-3, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15]) petOut('level' + lv, () => S.paraPetSet(sv, ed, { level: lv }));
     petOut('care', () => S.paraPetSet(sv, ed, { care: true }));
     petOut('none', () => S.paraPetSet(sv, ed, {}));
@@ -100,7 +100,7 @@ const crcFix = (p) => { const c = S.crc16arc(p, 4, 0x1000); p[0] = c & 255; p[1]
     }
     // without a settings block
     { const m = new Map(sv.pages); for (const a of S.setAddrs(ed)) m.delete(a); const bare = Object.assign({}, sv, { pages: m });
-      P('nosettings', [JSON.stringify(S.paraPet(bare, ed)), S.paraSettings(bare, ed), err(() => S.paraPetSet(bare, ed, { level: 3 })), checkStr(S.paraCheck(bare, ed))].join(' ')); }
+      P('nosettings', [JSON.stringify(S.paraPet(bare, ed)), S.paraSettings(bare, ed) === null, err(() => S.paraPetSet(bare, ed, { level: 3 })), checkStr(S.paraCheck(bare, ed))].join(' ')); }
     // Neon ring made by hand on every save: several valid pages with different numbers (wrap around too)
     { const base = S.setOf(sv.pages, ed);
       if (base) {
@@ -110,7 +110,7 @@ const crcFix = (p) => { const c = S.crc16arc(p, 4, 0x1000); p[0] = c & 255; p[1]
           const m = new Map(); cases[k].forEach((q, i) => m.set(ring[(i * 2) % 5], mk(q)));
           const bad = mk(100); bad[77] ^= 1; m.set(ring[1], bad);
           const s8 = Object.assign({}, sv, { pages: m, edition: 8 }), o = S.setOf(m, 8);
-          P('ring.' + k, o.at + ' ' + sha(o.p) + ' ' + checkStr(S.paraCheck(s8, 8)) + ' ' + err(() => { const r = S.paraPetSet(s8, 8, { level: 6, care: true }); return pagesSha(r.pages) + JSON.stringify(S.paraPet(r, 8)); }));
+          P('ring.' + k, o.at + ' ' + sha(o.p) + ' ' + checkStr(S.paraCheck(s8, 8)) + ' ' + err(() => { const r = S.paraPetSet(s8, 8, { level: 6, care: true }); return pagesSha(r.pages) + ' ' + sha(JSON.stringify(S.paraPet(r, 8))); }));
         }
       } }
     // broken files

@@ -121,8 +121,8 @@ class ParaSave {
   final Map<int, Uint8List> pages; // address -> page, in the order of the file
   final int edition;
 
-  ParaSave copyWith({Map<int, Uint8List>? pages, int? edition}) =>
-      ParaSave(stamp: stamp, counter: counter, alarm: alarm, status: status, regs: regs, pages: pages ?? this.pages, edition: edition ?? this.edition);
+  ParaSave copyWith({int? stamp, int? counter, Map<int, Uint8List>? pages, int? edition}) =>
+      ParaSave(stamp: stamp ?? this.stamp, counter: counter ?? this.counter, alarm: alarm, status: status, regs: regs, pages: pages ?? this.pages, edition: edition ?? this.edition);
 }
 
 int _nowSeconds() => DateTime.now().millisecondsSinceEpoch ~/ 1000;
