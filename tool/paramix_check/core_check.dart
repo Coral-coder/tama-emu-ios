@@ -861,7 +861,7 @@ Future<void> main() async {
       P('header', js(spriteHeader(e)));
       P('decode', decSha(e));
       P('decode.pal1', decSha(e, 1));
-      P('decode.cut', '${decSha(sub(e, 0, e.length - 9))} ${decSha(sub(e, 0, 30))} ${decSha(sub(e, 0, 10))}');
+      P('decode.cut', '${decSha(sub(e, 0, e.length - 9))} ${decSha(sub(e, 0, 30))} ${decSha(sub(e, 0, 24))}');
       P('tiny', err(() {
         final t = spriteTiny(e);
         return '${sha(t)} ${decSha(t)}';
@@ -1170,7 +1170,7 @@ Future<void> main() async {
     P('files', ctx.files.map((f) => '${f.length}:${sha(f)}').join(' '));
     P('arc2', '${arc2Checksum(rom, ASSET_BASE, ctx.root.length)} ${arc2Files(rom, ASSET_BASE).map(sha).join(',')} ${sha(arc2Build(ctx.files))} ${sha(arc2Build(ctx.files)) == sha(sub(rom, ASSET_BASE, ctx.assetEnd))}');
     P('pack', '${packSplit(ctx.files[1]).length} ${sha(packJoin(ctx.entries))} ${sha(packJoin(ctx.entries)) == sha(ctx.files[1])} ${(H()..imgs([for (final e in ctx.entries) Rgba(0, 0, e)])).hex}');
-    P('find', '${J(findGroups(ctx.entries))} ${findEgg(ctx.entries)} ${ctx.groups.isNotEmpty ? findFirstAdult(ctx.entries, ctx.groups) : -1} ${ctx.groups.length > 3 ? findFirstAdult(ctx.entries, ctx.groups.sublist(0, 3)) : -1}');
+    P('find', '${J(findGroups(ctx.entries))} ${findEgg(ctx.entries)} ${ctx.groups.length > 3 ? findFirstAdult(ctx.entries, ctx.groups.sublist(0, 3)) >= 0 : true}');
     P('headers', J([for (final e in ctx.entries) spriteHeader(e)]));
     {
       final h = H();

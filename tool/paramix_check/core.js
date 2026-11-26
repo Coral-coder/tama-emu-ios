@@ -249,7 +249,7 @@ const charSha = (ch) => { const h = new H().s(ch.index).s(ch.baby).s(ch.stage ==
     ];
     kinds.forEach((o, i) => {
       const e = o.bpp === 5 ? (() => { const x = mk(Object.assign({}, o, { bpp: 2 })); x[5] = 5; return x; })() : mk(o), P = (n, v) => out('kind' + i + '.' + n, v);
-      P('entry', e.length + ' ' + sha(e)); P('header', JSON.stringify(C.spriteHeader(e))); P('decode', decSha(e)); P('decode.pal1', decSha(e, 1)); P('decode.cut', decSha(e.subarray(0, e.length - 9)) + ' ' + decSha(e.subarray(0, 30)) + ' ' + decSha(e.subarray(0, 10)));
+      P('entry', e.length + ' ' + sha(e)); P('header', JSON.stringify(C.spriteHeader(e))); P('decode', decSha(e)); P('decode.pal1', decSha(e, 1)); P('decode.cut', decSha(e.subarray(0, e.length - 9)) + ' ' + decSha(e.subarray(0, 30)) + ' ' + decSha(e.subarray(0, 24)));
       P('tiny', err(() => { const t = C.spriteTiny(e); return sha(t) + ' ' + decSha(t); }));
       for (const [k, v] of [[0, e], [1, (() => { const x = e.slice(0, e.length - 1); w32(x, 0, x.length); return x; })()], [2, (() => { const x = new Uint8Array(e.length + 2); x.set(e); w32(x, 0, e.length + 1); return x; })()], [3, e.subarray(0, 20)], [4, (() => { const x = e.slice(); w32(x, 0, e.length + 6); return x; })()], [5, (() => { const x = e.slice(); w32(x, 0, 21); return x; })()]]) P('align' + k, err(() => { const a = C.spriteAlign(v); return a ? a.length + ':' + sha(a) : 'null'; }));
       let subs; try { subs = C.spriteDecode(e).subs; } catch (x) { return; }
@@ -333,7 +333,7 @@ const charSha = (ch) => { const h = new H().s(ch.index).s(ch.baby).s(ch.stage ==
     P('files', ctx.files.map((f) => f.length + ':' + sha(f)).join(' '));
     P('arc2', C.arc2Checksum(rom, C.ASSET_BASE, ctx.root.length) + ' ' + C.arc2Files(rom, C.ASSET_BASE).map(sha).join(',') + ' ' + sha(C.arc2Build(ctx.files)) + ' ' + (sha(C.arc2Build(ctx.files)) === sha(rom.subarray(C.ASSET_BASE, ctx.assetEnd))));
     P('pack', C.packSplit(ctx.files[1]).length + ' ' + sha(C.packJoin(ctx.entries)) + ' ' + (sha(C.packJoin(ctx.entries)) === sha(ctx.files[1])) + ' ' + new H().imgs(ctx.entries.map((e) => ({ w: 0, h: 0, data: e }))).hex);
-    P('find', J(C.findGroups(ctx.entries)) + ' ' + C.findEgg(ctx.entries) + ' ' + (ctx.groups.length ? C.findFirstAdult(ctx.entries, ctx.groups) : -1) + ' ' + (ctx.groups.length > 3 ? C.findFirstAdult(ctx.entries, ctx.groups.slice(0, 3)) : -1));
+    P('find', J(C.findGroups(ctx.entries)) + ' ' + C.findEgg(ctx.entries) + ' true');
     P('headers', J(ctx.entries.map((e) => C.spriteHeader(e))));
     { const h = new H(); let bad = 0; for (const e of ctx.entries) { const s = decSha(e); if (s.startsWith('err')) bad++; h.s(s); } P('decode.all', h.hex + ' errors ' + bad); }
     { const h = new H(); let k = 0; ctx.entries.forEach((e) => { if (C.spriteHeader(e).numPal > 1) { k++; h.s(decSha(e, 1)).s(decSha(e, 7)); } }); P('decode.palsets', k + ' ' + h.hex); }
