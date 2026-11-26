@@ -86,9 +86,11 @@ struct GameView: View {
         if showMenu {
           ScrollView {
             VStack(spacing: 6) {
-              MenuRow(title: "Feed") { note = console.care(1) ? "Fed" : "No pet yet" }
-              MenuRow(title: "Play") { note = console.care(2) ? "Happy" : "No pet yet" }
-              MenuRow(title: "Cure") { note = console.care(4) ? "Cured" : "No pet yet" }
+              MenuRow(title: "Feed") { note = console.care(1 | 64) ? "Fed" : "No pet yet" }
+              MenuRow(title: "Play") { note = console.care(2 | 64) ? "Happy" : "No pet yet" }
+              MenuRow(title: "Cure") { note = console.care(4 | 64) ? "Cured" : "No pet yet" }
+              MenuRow(title: "Clean") { note = console.care(8) ? "Clean" : "No pet yet" }
+              MenuRow(title: "Sleep") { note = console.care(16) ? "Sleeping" : "No pet yet"; console.turn(true) }
               MenuRow(title: "Reset button") { console.reset(); showMenu = false }
               MenuRow(title: showKeys ? "Hide buttons" : "Show buttons") { showKeys.toggle(); showMenu = false }
               MenuRow(title: "Back to the game") { showMenu = false }

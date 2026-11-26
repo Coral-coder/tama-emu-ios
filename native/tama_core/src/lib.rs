@@ -245,6 +245,32 @@ fn entretenir(m: &mut Machine, e: u32) {
     p.snsys.tick(e);
 }
 
+/// Care bits of tama_care / tama_auto_care.
+pub const SOIN_REPAS: u32 = 1;
+pub const SOIN_JEU: u32 = 2;
+pub const SOIN_REMEDE: u32 = 4;
+/// Removes the poop.
+pub const SOIN_MENAGE: u32 = 8;
+/// Puts the pet on screen to sleep.
+pub const SOIN_DODO: u32 = 16;
+/// Wakes the pet on screen.
+pub const SOIN_REVEIL: u32 = 32;
+/// Lets a pet that still cries, sulks or looks sick after the care look content again.
+pub const SOIN_HUMEUR: u32 = 64;
+
+// The pet's behaviour on the field, as the firmware numbers it (the same on every edition seen:
+// Water, Jade, Tropical, Neon). It picks the idle animation; the game sets it when it builds the
+// field, when a meter crosses a limit and at bedtime, and reads it whenever the pet goes back to
+// idling (after the dial was touched, for one).
+const C_DODO: u16 = 0x02; // asleep (Zzz)
+const C_NORMAL: u16 = 0x07; // hunger 3..4
+const C_FACHE: u16 = 0x0C; // happiness 5 or less
+const C_CONTENT: u16 = 0x0D; // hunger 5 or more, happiness 10 or more
+const C_PLEURE: u16 = 0x0E; // hunger 2 or less
+const C_MALADE: u16 = 0x17; // sick (the skull)
+const C_APPEL: u16 = 0x1B; // crying for the first care, after hatching
+const COMPORTEMENTS: [u16; 7] = [C_DODO, C_NORMAL, C_FACHE, C_CONTENT, C_PLEURE, C_MALADE, C_APPEL];
+
 impl Tama {
     /// The memory tool's held values, written back over whatever the game did.
     fn geler(&mut self) {
@@ -497,7 +523,8 @@ impl Tama {
         None
     }
 
-    /// Care kept up by itself (fed, played with, cured), checked every 10 s of console time.
+    /// Care kept up by itself (fed, played with, cured, cleaned, cheered up), checked every 10 s
+    /// of console time. Sleep and wake are orders, not states to keep: they are not repeated.
     fn soigner(&mut self) {
         if self.soins_auto == 0 {
             return;
@@ -507,27 +534,106 @@ impl Tama {
             return;
         }
         self.soins_a = now + 10 * CYCLES_PAR_SECONDE as u64;
-        let f = self.soins_auto;
+        let f = self.soins_auto & !(SOIN_DODO | SOIN_REVEIL);
         self.soins(f);
     }
 
+    /// Whether this is the Neon edition (its settings ring at 0xD86000).
+    fn est_neon(&self) -> bool {
+        let f = &self.m.bus.flash.data;
+        f.len() >= 0xD86000 && u32::from_le_bytes([f[0xD85000], f[0xD85001], f[0xD85002], f[0xD85003]]) < 0x100
+    }
+
+    /// Where the poop count sits in the pet's record: +0x3C, on Neon one byte further.
+    fn place_du_caca(&self) -> usize {
+        if self.est_neon() {
+            0x3D
+        } else {
+            0x3C
+        }
+    }
+
+    /// The field scene as it lives in RAM while the pet's field is on screen (the two zoom levels
+    /// between space and the cell): (address of the scene's object, address of the behaviour id).
+    /// The firmware keeps a pointer to the object in a fixed variable (Water, Land, Sky:
+    /// 0x180062B4, Jade: 0x18006274, Tropical, Glacier: 0x1800633C, Neon: 0x180059F8) and the
+    /// pet's behaviour 0x268 bytes before that variable. Outside the field (space, the cell, a
+    /// menu's game) that memory holds other things: None then.
+    fn scene(&self) -> Option<(usize, usize)> {
+        let g = match self.place_du_tama() {
+            0x104 => 0x62B4,
+            0x108 => 0x6274,
+            _ if self.est_neon() => 0x59F8,
+            _ => 0x633C,
+        };
+        let ram = &self.m.bus.sram.data;
+        let mot = |a: usize| u32::from_le_bytes([ram[a], ram[a + 1], ram[a + 2], ram[a + 3]]);
+        let demi = |a: usize| u16::from_le_bytes([ram[a], ram[a + 1]]);
+        if g + 4 > ram.len() {
+            return None;
+        }
+        let p = mot(g);
+        let o = p.wrapping_sub(0x1800_0000) as usize;
+        // the object: a heap block of 0x1C bytes, starting with two zero bytes
+        if p & 3 != 0 || o < 0x8000 || o + 0x10 > ram.len() || mot(o - 4) != 0x1C || demi(o) != 0 {
+            return None;
+        }
+        // the behaviour: a known id, after two words that are always 1
+        let c = g - 0x268;
+        if demi(c - 4) != 1 || demi(c - 2) != 1 || !COMPORTEMENTS.contains(&demi(c)) {
+            return None;
+        }
+        Some((o, c))
+    }
+
     /// Feeds (bit 1), plays (bit 2), cures (bit 4): the pet's record in RAM, as the game's own
-    /// meal, game and medicine would leave it (hunger 6, happiness 20, not sick).
+    /// meal, game and medicine would leave it (hunger 6, happiness 20, not sick). Cleans (bit 8):
+    /// the poop count of the record and of the field on screen. Sleep (16), wake (32) and cheer
+    /// up (64) set the behaviour of the pet on screen, which the game only works out when it
+    /// builds the field or when a meter crosses a limit by itself: it does not see the record
+    /// change under it, so a crying or sick pet went on crying after the care.
     fn soins(&mut self, quoi: u32) -> bool {
         let Some((o, t)) = self.trouver_bloc() else { return false };
+        let caca = self.place_du_caca();
+        let scene = self.scene();
         let ram = &mut self.m.bus.sram.data;
         let p = o + t;
         if ram[p + 4] == 0 && ram[p + 5] == 0 {
             return false; // no pet (yet)
         }
-        if quoi & 1 != 0 && ram[p + 0x1C] < 6 {
+        if quoi & SOIN_REPAS != 0 && ram[p + 0x1C] < 6 {
             ram[p + 0x1C] = 6;
         }
-        if quoi & 2 != 0 && ram[p + 0x1D] < 20 {
+        if quoi & SOIN_JEU != 0 && ram[p + 0x1D] < 20 {
             ram[p + 0x1D] = 20;
         }
-        if quoi & 4 != 0 {
+        if quoi & SOIN_REMEDE != 0 {
             ram[p + 0x10] = 0;
+        }
+        if quoi & SOIN_MENAGE != 0 {
+            // the record (read when the field is built) and the field on screen (its own count:
+            // the poops go at once)
+            ram[p + caca] = 0;
+            if let Some((objet, _)) = scene {
+                ram[objet + 4] = 0;
+            }
+        }
+        let Some((_, c)) = scene else { return true };
+        let actuel = u16::from_le_bytes([ram[c], ram[c + 1]]);
+        // what the game picks when it builds the field with these meters (seen on Water)
+        let content = ram[p + 0x10] == 0 && ram[p + 0x1C] >= 5 && ram[p + 0x1D] >= 10;
+        let mut voulu = None;
+        if quoi & SOIN_HUMEUR != 0 && content && [C_FACHE, C_PLEURE, C_MALADE, C_APPEL].contains(&actuel) {
+            voulu = Some(C_CONTENT);
+        }
+        if quoi & SOIN_REVEIL != 0 && actuel == C_DODO {
+            voulu = Some(if content { C_CONTENT } else { C_NORMAL });
+        }
+        if quoi & SOIN_DODO != 0 && actuel != C_DODO {
+            voulu = Some(C_DODO);
+        }
+        if let Some(v) = voulu {
+            ram[c..c + 2].copy_from_slice(&v.to_le_bytes());
         }
         true
     }
@@ -1106,13 +1212,21 @@ pub unsafe extern "C" fn tama_pet(t: *mut Tama, out: *mut i32) {
     o[7] = (0x1800_0000 + b) as i32;
 }
 
-/// Feeds (1), plays (2), cures (4) now. 1 done, 0 no pet found.
+/// Care now, by bits: 1 feeds, 2 plays, 4 cures, 8 cleans (no poop), 16 puts the pet to sleep,
+/// 32 wakes it, 64 cheers it up (a pet whose meters are full and that still cries, sulks or looks
+/// sick on screen looks content again). 1 done, 0 no pet found.
+///
+/// 16, 32 and 64 act on the field on screen only (nothing happens in space, in the cell or in a
+/// menu) and show the next time the pet goes back to idling: at the next touch of the dial
+/// (one step is enough and does not zoom). Sleep is the picture only: the game's clock and bedtime are
+/// not changed, and the field built anew (after a zoom out to space) shows the game's own state.
 #[no_mangle]
 pub unsafe extern "C" fn tama_care(t: *mut Tama, what: u32) -> i32 {
     (*t).soins(what) as i32
 }
 
-/// Care kept up by itself, every 10 s of console time: the same bits as tama_care (0: off).
+/// Care kept up by itself, every 10 s of console time: the bits 1, 2, 4, 8 and 64 of tama_care
+/// (0: off; sleep and wake are not repeated).
 #[no_mangle]
 pub unsafe extern "C" fn tama_auto_care(t: *mut Tama, what: u32) {
     let t = &mut *t;

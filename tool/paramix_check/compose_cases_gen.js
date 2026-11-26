@@ -102,13 +102,13 @@ for (const ed of ['water', 'tropical']) for (const k of Object.keys(kinds)) C('a
 for (const ed of ['land', 'sky', 'jade', 'glacier', 'neon']) C('app.mix.' + ed, open(ed), set('bag', true), kinds.go, kinds.gb, kinds.v1, sps, again);
 C('app.nomenu', open('water'), fw(P.idl), fw(P.go), state, plan, save, set('tama', true), save, again, set('tama', false), save);
 C('app.nomenu.noa0', open('tropical'), fw(P.go), save, set('feld', true), save, again);
-C('app.many.water', open('water'), set('bag', true), set('feld', true), fw(P.idl), kinds.go, kinds.fr, kinds.v1, kinds.v3, kinds.gb, kinds.gbc, kinds.sms, kinds.gg, kinds.pm, kinds.ab, kinds.wolf, kinds.sod, state, plan, save, again,
+C('app.many.water', open('water'), set('bag', true), set('feld', true), fw(P.v1b), kinds.go, kinds.fr, kinds.v1, kinds.v3, kinds.gb, kinds.gbc, kinds.sms, kinds.gg, kinds.pm, kinds.ab, kinds.wolf, kinds.sod, state, plan, save, again,
   fw('v1:16384:62'), state, row('x3', 'del'), row('x0', 'del'), [['gb', P.gb2, 'zelda.gb']], state, plan, save, again);
 C('app.max.neon', open('neon'), set('bag', true), kinds.go, kinds.fr, kinds.v1, kinds.v3, kinds.gb, kinds.gbc, kinds.sms, kinds.gg, kinds.pm, kinds.ab, kinds.wolf, kinds.sod, fw(P.v1b), [['gb', P.gb2, 'zelda.gb']], [['wolf', P.wolfSh]], state, plan, save, again);
 C('app.twice', open('water'), set('bag', true), kinds.go, kinds.go, kinds.gb, kinds.gb, kinds.v1, fw(P.v1), kinds.pm, kinds.pm, kinds.ab, kinds.ab, state, save);
-C('app.set', open('water'), set('bag', true), fw(P.idl), kinds.go, kinds.v1, kinds.gb, kinds.sms, chk('x0', 'emuClock', false), chk('x0', 'emuSess', false), chk('x1', 'emuClock', false), chk('x1', 'emuSess', false), chk('x2', 'emuSess', false), chk('x3', 'emuSess', false),
+C('app.set', open('water'), set('bag', true), fw(P.v3), kinds.go, kinds.v1, kinds.gb, kinds.sms, chk('x0', 'emuClock', false), chk('x0', 'emuSess', false), chk('x1', 'emuClock', false), chk('x1', 'emuSess', false), chk('x2', 'emuSess', false), chk('x3', 'emuSess', false),
   chk('x2', 'emuClock', false), state, save, again, chk('x0', 'emuClock', true), chk('x3', 'emuSess', true), state, plan, save, again);
-C('app.figs', open('water'), set('bag', true), fw(P.idl), kinds.go, row('x0', 'fig', P.fig, 'one.bin'), row('x0', 'fig', P.fig2, 'two.bin'), row('x0', 'fig', P.fig2, 'two.bin'), kinds.fr, row('x1', 'fig', P.fig), state, save, again, row('x0', 'fig', 'fig:1048576:524288:56', 'three.bin'), save, again);
+C('app.figs', open('water'), set('bag', true), fw(P.v1b), kinds.go, row('x0', 'fig', P.fig, 'one.bin'), row('x0', 'fig', P.fig2, 'two.bin'), row('x0', 'fig', P.fig2, 'two.bin'), kinds.fr, row('x1', 'fig', P.fig), state, save, again, row('x0', 'fig', 'fig:1048576:524288:56', 'three.bin'), save, again);
 C('app.keys', open('water'), set('bag', true), kinds.gb, kinds.sms, kinds.pm, kinds.ab, kinds.wolf, [['inv', 'gb', false]], [['inv', 'sms', false]], [['inv', 'pm', false]], [['inv', 'ab', false]], [['wolfKey', 'turn', 30]], [['wolfKey', 'run', false]], state, save, again,
   [['gb', P.gb2, 'zelda.gb']], [['pm', P.bios, 'bios.min']], [['pm', P.pm2, 'small.min']], [['inv', 'gb', true]], [['wolfKey', 'fire', 2]], state, plan, save, again);
 C('app.pm.bios', open('land'), set('tama', true), [['pm', P.bios, 'bios.min']], [['pm', P.pm, 'a.min']], [['pm', 'pm:1572864:103', 'big.min']], [['pm', 'rnd:9000:1', 'no.min']], state, save, again);
@@ -118,7 +118,7 @@ C('app.star', open('water'), set('bag', true), fw(P.go), fw(P.go2), fw(P.v1), st
 C('app.star.gb', open('water'), set('bag', true), kinds.gb, kinds.go, row('x0', 'star'), row('x1', 'star'), state, save, again);
 C('app.star.tama', open('water'), set('bag', true), fw(P.idl), fw(P.go), fw(P.v1), row('x0', 'star'), state, save, row('main', 'del'), state, fw(P.t18), state, save, again);
 C('app.take.out', open('water'), set('bag', true), fw(P.go), kinds.gb, kinds.sms, save, reopen, row('x1', 'del'), state, plan, save, again, row('x0', 'del'), row('x0', 'del'), row('main', 'del'), state, plan, save, again, set('bag', false), save, again);
-C('app.t7savex', open('water'), set('bag', true), fw(P.idl), kinds.go, kinds.v1, save, reopen, [['raw', 't7saveX', 0, 'rnd:4098:35']], [['raw', 'saveIn', 1, 'v1', 'rnd:8192:36']], compose, save, again, [['raw', 'saveIn', 0, 'tama']], [['raw', 'carry', 0]], compose);
+C('app.t7savex', open('water'), set('bag', true), fw(P.v1b), kinds.go, kinds.v1, save, reopen, [['raw', 't7saveX', 0, 'rnd:4098:35']], [['raw', 'saveIn', 1, 'v1', 'rnd:8192:36']], compose, save, again);
 
 // ---------------------------------------------------------------- G. start device
 for (const ed of EDS) {
@@ -165,13 +165,13 @@ C('doom.vs.emu', open('water'), [['wad', P.wad]], fw(P.idl), state, plan, save, 
 C('doom.off', open('water'), [['wad', P.wad]], save, reopen, [['doomOff']], state, plan, save, again);
 C('doom.back', open('water'), [['wad', P.wad]], save, reopen, row('doom', 'del'), row('doom', 'undo'), state, save, fw(P.v1), state, save, again);
 C('doom.six', open('water'), [['wad', P.wad]], set('sixOn', true), save);
-for (const ed of NOA0) C('doom.noa0.' + ed, open(ed), [['wad', P.wad]], state, save, set('launch', true), [['wad', P.wad3]], state, plan, save, again, [['doomSel', '2', true]], [['doomSel', '3', true]], state, plan, save, again,
-  [['doomWhole', true]], [['doomMusic', false]], state, plan, save, again, [['doomKeys', { fire: 4, back: 1 }]], save, again, [['doomOff']], state, save);
-C('doom.launch', open('water'), set('launch', true), [['wad', P.wad]], state, plan, save, again, fw(P.idl), fw(P.go), state, plan, save, again, row('main', 'star'), row('main', 'check', 'emuAuto', true), state, save, again, row('doom', 'star'), state, save, again);
+for (const ed of NOA0) C('doom.noa0.' + ed, open(ed), [['wad', P.wad]], state, save, set('launch', true), [['wad', P.wad3]], state, plan, save, again, [['wad', P.wad3]], [['doomWhole', false]], [['doomSel', '2', true]], [['doomSel', '3', true]], [['doomSel', '1', false]], state, plan, save, again,
+  [['wad', P.wad3]], [['doomWhole', true]], [['doomMusic', false]], state, plan, save, again, [['doomKeys', { fire: 4, back: 1 }]], save, again, [['doomOff']], state, save);
+C('doom.launch', open('water'), set('launch', true), [['wad', P.wad]], state, plan, save, again, fw(P.idl), fw(P.go), state, plan, save, again, row('main', 'star'), row('main', 'check', 'emuAuto', true), state, save, again, row('x1', 'star'), row('x1', 'check', 'emuAuto', true), state, save, again, row('doom', 'star'), state, save, again);
 C('doom.launch.star', open('land'), set('launch', true), [['wad', P.wad3]], fw(P.go), fw(P.v1), fw(P.t18), row('x1', 'star'), row('x1', 'check', 'emuAuto', true), state, plan, save, again, row('x0', 'star'), state, save, again, row('doom', 'del'), state, plan, save, again);
 C('doom.launch.late', open('water'), [['wad', P.wad]], save, reopen, set('launch', true), fw(P.idl), state, plan, save, again, set('clean', true), state, plan, save, again);
 C('doom.launch.emu', open('sky'), fw(P.idl), set('bag', true), save, reopen, set('launch', true), [['wad', P.wad]], state, plan, save, again);
-for (const ed of ['water', 'tropical', 'neon']) C('doom.clean.' + ed, open(ed), set('launch', true), set('clean', true), [['wad', P.wad3]], state, plan, save, again, [['wad', P.wad3]], [['doomSel', '2', true]], [['doomMusic', false]], fw(P.go), state, plan, save, again,
+for (const ed of ['water', 'tropical', 'neon']) C('doom.clean.' + ed, open(ed), set('launch', true), set('clean', true), [['wad', P.wad3]], state, plan, save, again, [['wad', P.wad3]], [['doomWhole', false]], [['doomSel', '2', true]], [['doomMusic', false]], fw(P.go), state, plan, save, again,
   row('x0', 'star'), [['doomKeys', { invert: false, mod: 2 }]], state, save, again, row('x1', 'del'), state, save, again, [['doomOff']], state, save, again);
 C('doom.clean.whole', open('land'), set('launch', true), set('clean', true), [['wad', P.wad3]], [['doomWhole', true]], state, plan, save, again, [['wad', P.wad3]], [['doomWhole', false]], [['doomSel', '3', true]], [['doomSel', '1', false]], state, plan, save, again);
 C('doom.clean.d2', open('water'), [['wad', P.wadM]], state, set('launch', true), set('clean', true), [['wad', P.wadM]], state, plan, save, again);
@@ -182,8 +182,8 @@ C('doom.noport', [['noport']], open('water'), [['wad', P.iw3]], [['doomEp', '2']
 // synthetic WADs through doom.js / doom.dart and the converter itself
 C('doom.real.water', open('water'), [['wad', P.iw1]], state, plan, save, again, [['wad', P.iw3]], [['doomEp', '3']], [['doomMusic', false]], state, plan, save, again, [['doomKeys', { fire: 4, back: 1 }]], save, again);
 C('doom.real.launch', open('land'), set('launch', true), [['wad', P.iw3]], [['doomEp', '2']], fw(P.go), state, plan, save, again);
-C('doom.real.noa0', open('tropical'), set('launch', true), [['wad', P.iw3]], [['doomSel', '2', true]], fw(P.go), state, plan, save, again, [['doomWhole', true]], state, save, again);
-C('doom.real.clean', open('sky'), set('launch', true), set('clean', true), [['wad', P.iw3]], [['doomSel', '3', true]], [['doomMusic', false]], fw(P.v1), state, plan, save, again, [['wad', P.iw3]], [['doomWhole', true]], state, save, again);
+C('doom.real.noa0', open('tropical'), set('launch', true), [['wad', P.iw3]], [['doomWhole', false]], [['doomSel', '2', true]], fw(P.go), state, plan, save, again, [['wad', P.iw3]], [['doomWhole', true]], state, save, again);
+C('doom.real.clean', open('sky'), set('launch', true), set('clean', true), [['wad', P.iw3]], [['doomWhole', false]], [['doomSel', '3', true]], [['doomMusic', false]], fw(P.v1), state, plan, save, again, [['wad', P.iw3]], [['doomWhole', true]], state, save, again);
 C('doom.real.d2', open('neon'), [['wad', P.iwM]], set('launch', true), set('clean', true), [['wad', P.iwM]], state, plan, save, again);
 C('doom.real.bad', open('water'), [['wad', 'rnd:5000:3']], [['wad', 'iwad:8200:5:1']], state, save);
 

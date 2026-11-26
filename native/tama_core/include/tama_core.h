@@ -39,8 +39,14 @@ uint64_t tama_waits_skipped(const Tama *t);
 int32_t tama_wake(Tama *t);
 /// One step of the dial (right 1, left 0), queued and played in console time.
 void tama_turn(Tama *t, int32_t right);
-/// Care kept up by itself every 10 s of game time: 1 feed, 2 play, 4 cure (0 off).
+/// Care kept up by itself every 10 s of game time: 1 feed, 2 play, 4 cure, 8 clean (no poop),
+/// 64 cheer up (0 off). Sleep and wake (16, 32) are not repeated.
 void tama_auto_care(Tama *t, uint32_t what);
+/// Care now: 1 feed, 2 play, 4 cure, 8 clean (removes the poop, on screen at once), 16 sleep,
+/// 32 wake, 64 cheer up (a pet with full meters that still cries, sulks or looks sick looks
+/// content again). 16, 32 and 64 only act while the pet's field is on screen and show at the next
+/// touch of the dial (one tama_turn step is enough and does not zoom); sleep is the picture only, the game's
+/// bedtime is not changed. 1 done, 0 no pet.
 int32_t tama_care(Tama *t, uint32_t what);
 /// The reset button: the core restarts on its save.
 void tama_reset(Tama *t);

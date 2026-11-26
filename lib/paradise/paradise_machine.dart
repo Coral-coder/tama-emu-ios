@@ -49,7 +49,7 @@ class ParadiseMachine extends ChangeNotifier {
     // the date screens of a new start confirm themselves when the clock could be set (the form
     // is then filled in with the phone's date)
     if (h.syncClock() > 0) h.autoDate();
-    h.autoCare(_autoCare);
+    h.autoCare(_withCheer(_autoCare));
     _h = h;
     error = null;
     start();
@@ -271,10 +271,12 @@ class ParadiseMachine extends ChangeNotifier {
   int get consoleSeconds => _h?.seconds ?? 0;
   (int, int) petPlaces() => _h?.petPlaces() ?? (0x104, 0x7C);
   int _autoCare = 0;
+  // a pet kept fed, happy or healthy also stops looking sad (the game keeps the old face otherwise)
+  static int _withCheer(int v) => v & 7 != 0 ? v | ParadiseHandle.careCheer : v;
   int get autoCareBits => _autoCare;
   set autoCareBits(int v) {
     _autoCare = v;
-    _h?.autoCare(v);
+    _h?.autoCare(_withCheer(v));
   }
 
   /// Types [text] into the game's naming screen (the cursor on the box to fill): for each

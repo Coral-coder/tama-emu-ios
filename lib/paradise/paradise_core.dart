@@ -318,6 +318,10 @@ class ParadiseHandle {
 
   static const careFeed = 1, carePlay = 2, careCure = 4;
 
+  /// Clean (no poop), sleep now, wake, cheer up (a pet with full meters that still looks sad).
+  /// Sleep, wake and cheer show when the pet next idles: one step of the dial does it.
+  static const careClean = 8, careSleep = 16, careWake = 32, careCheer = 64;
+
   /// Feeds / plays / cures now (bits [careFeed], [carePlay], [careCure]). False: no pet.
   bool care(int what) => core._care(_t, what) == 1;
 

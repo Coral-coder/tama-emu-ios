@@ -50,7 +50,11 @@ class _CareState extends State<_Care> {
   void _read() => setState(() => _pet = widget.m.pet());
 
   void _do(int what, String done) {
-    final ok = widget.m.care(what);
+    // feeding, playing and curing also clear the sad face the game would otherwise keep
+    final faces = what & (ParadiseHandle.careFeed | ParadiseHandle.carePlay | ParadiseHandle.careCure) != 0 ? ParadiseHandle.careCheer : 0;
+    final ok = widget.m.care(what | faces);
+    // the new pose shows when the pet next idles: one step of the dial brings that on
+    if (ok && (what | faces) & (ParadiseHandle.careSleep | ParadiseHandle.careWake | ParadiseHandle.careCheer) != 0) widget.m.turn(true);
     setState(() => _note = ok ? done : 'No pet in this game yet.');
     _read();
   }
@@ -92,6 +96,19 @@ class _CareState extends State<_Care> {
             const SizedBox(width: 8),
             Expanded(child: FilledButton.icon(onPressed: () => _do(ParadiseHandle.careCure, 'Medicine given.'), icon: const Icon(Icons.healing), label: const Text('Cure'))),
           ]),
+          const SizedBox(height: 8),
+          Row(children: [
+            Expanded(child: FilledButton.tonalIcon(onPressed: () => _do(ParadiseHandle.careClean, 'Cleaned up.'), icon: const Icon(Icons.cleaning_services), label: const Text('Clean'))),
+            const SizedBox(width: 8),
+            Expanded(child: FilledButton.tonalIcon(onPressed: () => _do(ParadiseHandle.careSleep, 'Sleeping (on the field view).'), icon: const Icon(Icons.bedtime), label: const Text('Sleep'))),
+            const SizedBox(width: 8),
+            Expanded(child: FilledButton.tonalIcon(onPressed: () => _do(ParadiseHandle.careWake, 'Awake.'), icon: const Icon(Icons.wb_sunny), label: const Text('Wake'))),
+          ]),
+          const Padding(
+            padding: EdgeInsets.only(top: 6),
+            child: Text('Sleep and Wake work while the field is on screen. Sleep is how it looks: its clock and bedtime stay as they are, and zooming out to space and back shows the game\'s own state again.',
+                style: TextStyle(fontSize: 12, color: Colors.white54)),
+          ),
           if (_note != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(_note!, style: const TextStyle(color: Colors.white60))),
           const Divider(height: 28),
           const Text('Daycare: kept up by itself, also in the background', style: TextStyle(color: Colors.white70)),
@@ -112,6 +129,13 @@ class _CareState extends State<_Care> {
             title: const Text('Keep healthy'),
             value: auto & ParadiseHandle.careCure != 0,
             onChanged: (v) => _auto(ParadiseHandle.careCure, v),
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Keep clean'),
+            subtitle: const Text('Poop is gone within seconds.'),
+            value: auto & ParadiseHandle.careClean != 0,
+            onChanged: (v) => _auto(ParadiseHandle.careClean, v),
           ),
           Align(
             alignment: Alignment.centerLeft,

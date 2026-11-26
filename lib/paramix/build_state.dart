@@ -1953,11 +1953,12 @@ class BuildState {
     _renderEmu();
   }
 
-  /// The row of entry [i] is opened (▾): the page gives a TamaEmu or T18Emu its options object then, which counts
-  /// when the overview compares the list with the loaded ROM.
+  /// The row of entry [i] is opened (▾): the page gives a TamaEmu or T18Emu its options object then (which counts
+  /// when the overview compares the list with the loaded ROM) and a Tama-Go its list of figures.
   void openExtra(int i) {
     final x = extras[i];
     if (x.kind == 'tama' || x.kind == 't18') x.opt ??= const E.EmuOpt();
+    if (x.kind == null && E.t7Kind(x.rom) == 'go') x.figs ??= [];
   }
 
   /// "Back from programs" (exitKey select).
