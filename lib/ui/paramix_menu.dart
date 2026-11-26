@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 
 import 'device_screen.dart';
 import 'menu_fields_screen.dart';
+import 'names_screen.dart';
 import 'studio_screen.dart';
 
 /// Every Paramix Studio tool, one tap each. All of them open the full Studio (offline, in the
@@ -23,7 +24,7 @@ class ParamixMenu extends StatelessWidget {
     ('Characters and texts', [
       _Tool('Characters', 'Export a character as a sheet, repaint it, upload it; fields as ZIP.', Icons.face_rounded, Color(0xFFFF4F9A), tab: 'figs'),
       _Tool('All sprites', 'Every picture of the ROM.', Icons.grid_view_rounded, Color(0xFF7B5CFF), tab: 'all'),
-      _Tool('Names', 'Rename fields, Tamas and items; move eyes and mouth.', Icons.text_fields_rounded, Color(0xFF26A69A), tab: 'names'),
+      _Tool('Eyes and mouth', 'Move the eyes and the mouth of a character (Studio page until its native screen lands).', Icons.face_retouching_natural, Color(0xFF26A69A), tab: 'names'),
       _Tool('Cards', 'Characters from character cards, TamaSma cards and DIM cards.', Icons.style_rounded, Color(0xFFFFB300), tab: 'dim'),
     ]),
     ('Saves and the device', [
@@ -63,6 +64,14 @@ class ParamixMenu extends StatelessWidget {
               title: const Text('Menu & fields'),
               subtitle: const Text('Several saves, items, Tamapoints, change Tama on the toy; all 6 fields on Tropical / Glacier, Sky on Jade Forest. Native.'),
               onTap: () => go(const MenuFieldsScreen()),
+            ),
+          ),
+          Card(
+            child: ListTile(
+              leading: const CircleAvatar(backgroundColor: Color(0xFF26A69A), child: Icon(Icons.text_fields_rounded, color: Colors.white)),
+              title: const Text('Names'),
+              subtitle: const Text('Rename fields, Tamas and items. Native.'),
+              onTap: () => go(const NamesScreen()),
             ),
           ),
           for (final (title, tools) in _sections) ...[

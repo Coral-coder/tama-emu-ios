@@ -3,7 +3,7 @@
 // Prints one line per case: "<case name> <sha256 or value>", the same lines as tool/paramix_check/emu.js.
 // The guest firmware and the games are synthetic (seeded xorshift32, with the headers the detection looks for).
 
-// ignore_for_file: avoid_print, non_constant_identifier_names
+// ignore_for_file: avoid_print, non_constant_identifier_names, library_prefixes, constant_identifier_names
 
 import 'dart:convert';
 import 'dart:io';
@@ -1171,6 +1171,8 @@ Opts O({bool launch = false, String? lang, bool? clock, bool? nfc, bool noClock 
 E.AppsPlaced place(Uint8List rom, List<Extra> xs, EmuApps apps, Opts o, {String? lang}) => E.appsPlace(rom, xs, apps,
     launch: o.launch, lang: lang ?? o.lang, clock: o.clock, nfc: o.nfc, noClock: o.noClock, dlApp: o.dlApp, noResv: o.noResv, keep: o.keep, txSpare: o.txSpare, t18More: o.t18More, clean: o.clean, doomTop: o.doomTop);
 
+typedef TO = ({bool pack, bool? clock, String? lang, String? device});
+
 void onRom(String ed, Uint8List rom, Syn S) {
   final gen1 = ed == 'water' || ed == 'land' || ed == 'sky', first = ed == 'water' || ed == 'jade' || ed == 'tropical' || ed == 'neon';
   T('$ed.sceneTable', () {
@@ -1181,7 +1183,6 @@ void onRom(String ed, Uint8List rom, Syn S) {
   T('$ed.t18Free', () => '${E.t18Free(rom).map((v) => v.toRadixString(16)).join('.')} / ${E.t18Free(rom, true).map((v) => v.toRadixString(16)).join('.')}');
   settings('$ed.plain', rom);
   // TamaEmu as the main program
-  typedef TO = ({bool pack, bool? clock, String? lang, String? device});
   TO to({bool pack = false, bool? clock, String? lang, String? device}) => (pack: pack, clock: clock, lang: lang, device: device);
   final tamaCases = gen1
       ? [

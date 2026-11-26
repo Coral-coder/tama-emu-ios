@@ -29,5 +29,16 @@ void main() {
   make('jade-sky-menu', 'jade', const ComposeOptions(fields: true, bag: true, tama: true, sixWant: true));
   make('water-menu', 'water', const ComposeOptions(fields: true, bag: true, tama: true));
   make('neon-menu', 'neon', const ComposeOptions(bag: true, tama: true));
+  final six = File('$out/tropical-six-menu.bin');
+  if (six.existsSync()) {
+    try {
+      final b = six.readAsBytesSync();
+      final r = composeRom(b, ComposeOptions.of(b, a, texts: {14: 'MY ISLAND', 64: 'HOME'}), a);
+      File('$out/tropical-six-names.bin').writeAsBytesSync(r);
+      print('tropical-six-names: ok, fields ${fieldNames(r)}, texts ${fieldTexts(r)}, menu ${feldFind(r, a.stubFeld) != null}, six ${sixInfo(r)?.version}');
+    } catch (e) {
+      print('tropical-six-names: $e');
+    }
+  }
   make('tropical-six-nosource', 'tropical', const ComposeOptions(sixWant: true));
 }

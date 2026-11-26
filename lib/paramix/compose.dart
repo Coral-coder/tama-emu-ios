@@ -3,7 +3,7 @@
 // characters, names, emulators and DOOM join as their ports land.
 import 'dart:typed_data';
 
-import 'core_more.dart' show textGet;
+import 'core_more.dart' show textApply, textGet;
 import 'feld.dart';
 import 'six.dart';
 
@@ -24,7 +24,27 @@ class ComposeOptions {
     this.sixSource,
     this.sixPlanet = true,
     this.sixMenu = true,
+    this.texts = const {},
   });
+
+  /// The settings a ROM already has (to build it again with something else changed).
+  factory ComposeOptions.of(Uint8List rom, ComposeAssets a, {Map<int, String> texts = const {}}) {
+    final m = feldFind(rom, a.stubFeld);
+    final s = sixInfo(rom);
+    final f = m?.flags ?? 0;
+    return ComposeOptions(
+      fields: (f & fFields) != 0,
+      bag: (f & fBag) != 0,
+      tama: (f & fTama) != 0,
+      gplay: (f & fGplay) != 0,
+      sixPlanet: s?.planet ?? true,
+      sixMenu: s?.fieldMenu ?? true,
+      texts: texts,
+    );
+  }
+
+  /// New names: text number -> name (cleaned with textClean).
+  final Map<int, String> texts;
 
   /// Several saves with field choice; items and Tamapoints; change Tama; play time earns points.
   final bool fields, bag, tama, gplay;
@@ -42,6 +62,22 @@ class ComposeError implements Exception {
   final String message;
   @override
   String toString() => message;
+}
+
+/// app.js:481 fieldTexts(rom, six) for the Names list: each field's name and the text numbers
+/// that hold it (a base field named LAND / WATER / SKY shares its text with the extra field's).
+List<({List<int> idx, String name})> fieldTextRows(Uint8List rom) {
+  const lws = ['LAND', 'WATER', 'SKY'];
+  final fn = fieldNames(rom).map((s) => s.toUpperCase()).toList();
+  final out = <({List<int> idx, String name})>[];
+  for (var i = 0; i < fn.length; i++) {
+    final k = lws.indexOf(fn[i]), own = i < 3 ? 14 + i : (k >= 0 ? 64 + k : -1);
+    if (own < 0) continue;
+    final idx = [own];
+    if (i < 3 && k >= 0 && textGet(rom, 64 + k) == textGet(rom, own)) idx.add(64 + k);
+    out.add((idx: idx, name: textGet(rom, own)));
+  }
+  return out;
 }
 
 /// app.js:481 fieldTexts(rom): the field names as the ROM's text table has them.
@@ -67,9 +103,18 @@ Uint8List composeRom(Uint8List src, ComposeOptions o, ComposeAssets a) {
   if (old.apps.isNotEmpty) {
     throw ComposeError('This ROM has more programs in its menu. Rebuilding those is not in the app yet.');
   }
-  // 1. the saves stored in the menu, then the old menu out (app.js:2665)
+  // 5. names (app.js:2664)
+  var rom = src;
+  if (o.texts.isNotEmpty) {
+    try {
+      rom = textApply(rom, o.texts);
+    } catch (e) {
+      throw ComposeError('Too big for the free space. ${_msg(e)}');
+    }
+  }
+  // 6. the saves stored in the menu, then the old menu out (app.js:2665)
   var saved = feldSlots(src, a.stubFeld);
-  var rom = feldStrip(src, embOld, emu);
+  rom = feldStrip(rom, embOld, emu);
 
   // 15. six fields (app.js:2713)
   if (o.sixOff && sixInfo(rom) != null) {
