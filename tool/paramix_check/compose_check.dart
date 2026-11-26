@@ -512,6 +512,8 @@ Future<void> run(String name, List steps, List<String> out) async {
             confirms.clear();
             last = c.rom;
             lastName = c.name;
+            final keep = Platform.environment['KEEP'];
+            if (keep != null) File('$keep/$name.$i.dart.bin').writeAsBytesSync(c.rom);
             res = '${sha(c.rom)} ${c.res != null ? 'Saved: ${c.name}\n${s.changed.length} sprites changed, ${c.res!.free ~/ 1024} KB still free.' : 'Saved: ${c.name}'}';
           }
         } on ComposeError catch (e) {

@@ -271,7 +271,7 @@ async function run(name, steps, out) {
         P.dl = null; P.dlName = '';
         await $('btnSave').onclick(); await P.settle();
         for (const q of P.confirms) say(i, 'confirm', q); P.confirms.length = 0;
-        if (P.dl) { last = new Uint8Array(P.dl.parts[0]); lastName = P.dlName; res = sha(last) + ' ' + $('toast').textContent; }
+        if (P.dl) { last = new Uint8Array(P.dl.parts[0]); lastName = P.dlName; if (process.env.KEEP) fs.writeFileSync(path.join(process.env.KEEP, name + '.' + i + '.js.bin'), last); res = sha(last) + ' ' + $('toast').textContent; }
         else res = '! ' + $('toast').textContent;
         $('toast').textContent = '';
         break; }
