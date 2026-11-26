@@ -25,7 +25,7 @@ const lines = [];
 const sha = (b) => crypto.createHash('sha256').update(Buffer.from(b.buffer, b.byteOffset, b.length)).digest('hex');
 const H = (b) => (b === null || b === undefined ? 'null' : b.length + ':' + sha(b));
 const out = (n, v) => { lines.push(n + ' ' + v); };
-const T = (n, f) => { try { out(n, f()); } catch (e) { out(n, 'ERR ' + (e instanceof Error && !(e instanceof TypeError) && !(e instanceof RangeError) ? e.message : 'INTERNAL ' + e) + (e.needPack ? ' needPack' : '') + (e.room ? ' room' + (e.frag ? ' frag' : '') : '') + (e.packHint ? ' packHint' : '') + (e.prog ? ' prog=' + e.prog : '')); } };
+const T = (n, f) => { try { out(n, f()); } catch (e) { out(n, 'ERR ' + (e instanceof Error && !(e instanceof TypeError) && !(e instanceof RangeError) ? e.message : 'INTERNAL') + (e.needPack ? ' needPack' : '') + (e.room ? ' room' + (e.frag ? ' frag' : '') : '') + (e.packHint ? ' packHint' : '') + (e.prog ? ' prog=' + e.prog : '')); } };
 const bo = (v) => (v === null || v === undefined ? '-' : v ? '1' : '0');
 const hx = (v) => (v === null || v === undefined ? '-' : (v >>> 0).toString(16));
 const u32 = (b, o) => (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0;
