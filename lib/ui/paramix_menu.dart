@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 import 'device_screen.dart';
 import 'menu_fields_screen.dart';
 import 'names_screen.dart';
+import 'visit_screen.dart';
 import 'studio_screen.dart';
 
 /// Every Paramix Studio tool, one tap each. All of them open the full Studio (offline, in the
@@ -72,6 +73,14 @@ class ParamixMenu extends StatelessWidget {
               title: const Text('Names'),
               subtitle: const Text('Rename fields, Tamas and items. Native.'),
               onTap: () => go(const NamesScreen()),
+            ),
+          ),
+          Card(
+            child: ListTile(
+              leading: const CircleAvatar(backgroundColor: Color(0xFFFF4F9A), child: Icon(Icons.favorite_rounded, color: Colors.white)),
+              title: const Text('Playdate with a visitor'),
+              subtitle: const Text('The app plays a second Paradise that visits your real toy over the dongle. Native.'),
+              onTap: () => go(const VisitScreen()),
             ),
           ),
           for (final (title, tools) in _sections) ...[
