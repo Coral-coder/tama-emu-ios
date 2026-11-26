@@ -35,3 +35,11 @@ original run in Node on real dumps.
   fixture, a log or your report. Do not commit or push; leave the files in the working tree.
 - Report: files written, the functions ported, the exact check commands and their result
   (how many cases, all identical or which differ), anything not ported and why.
+
+## Assets needed
+
+emu_build.dart (EmuBinaries / EmuApps; same files as third_party/paramix-studio/<dir>/):
+
+- already in assets/paramix/: emu.bin, stub_tpl.bin, t7.bin, t7x.bin, t18.bin, t18x.bin, v1.bin, v3.bin
+- still to add: gb/gb.bin, gb/gbc.bin, sms/sms.bin, pm/pm.bin, ab/ab.bin, wolf/wolf.bin,
+  wolf/wolfsod.bin, and for DOOM in the menu doom/doomf_app.bin, doom/doomf_xip.bin (DoomApp)

@@ -141,6 +141,9 @@ int _at(Uint8List b, int i) => i >= 0 && i < b.length ? b[i] : -1;
 bool _clean = false;
 int _assetEnd(Uint8List b) => _clean ? 0x10000 : 0x111000 + 16 + _u32s(b, 0x111000 + 8);
 
+/// a & b as JS computes it (32 bits, signed): the asset end of a ROM without an archive is above 2^32.
+int _and32(int a, int b) => (a & b).toSigned(32);
+
 bool _isFF(Uint8List b, int a, int n) {
   if (n <= 0) return true;
   if (a < 0 || a + n > b.length) return false; // JS: undefined !== 0xFF
@@ -1042,7 +1045,7 @@ Uint8List emuRemove(Uint8List rom) {
   if (u32(rom, _APP_OFF + 0x140) == _PMXC && u32(rom, _APP_OFF + 0x148) == _BIG_OFF) _fill(out, 0xFF, _BIG_OFF, _BIG_END);
   // DOOM: program part in the flash window and WAD (only behind the character data)
   _fill(out, 0xFF, _STUB_OFF + 0x1000, _SAVE_OFF);
-  final assetEnd = (0x111000 + 16 + u32(out, 0x111000 + 8) + 0xFFF) & ~0xFFF;
+  final assetEnd = _and32(0x111000 + 16 + u32(out, 0x111000 + 8) + 0xFFF, ~0xFFF);
   _fill(out, 0xFF, math.max(0x830000, assetEnd), 0xD48000);
   return out;
 }
@@ -2588,7 +2591,7 @@ int _idPageOf(Uint8List rom) {
 
 /// Free 64 KB blocks for the firmware: empty, behind the character data.
 List<int> t18Free(Uint8List rom, [bool launch = false]) {
-  final from = _clean ? 0x10000 : math.max(launch ? 0x200000 : 0x830000, (_assetEnd(rom) + 0xFFFF) & ~0xFFFF), list = <int>[]; // launcher ROM (1.6.8): all room behind the setup pictures
+  final from = _clean ? 0x10000 : math.max(launch ? 0x200000 : 0x830000, _and32(_assetEnd(rom) + 0xFFFF, ~0xFFFF)), list = <int>[]; // launcher ROM (1.6.8): all room behind the setup pictures
   final areas = _clean
       ? [(from, 0xFF0000)]
       : launch
@@ -3622,7 +3625,7 @@ AppsPlaced _appsPlace0(Uint8List rom, List<Extra> extras, EmuApps apps,
   final floor = clean
       ? 0x10000
       : launch
-          ? math.max(0x200000, (_assetEnd(out) + 0xFFFF) & ~0xFFFF)
+          ? math.max(0x200000, _and32(_assetEnd(out) + 0xFFFF, ~0xFFFF))
           : _GUEST_OFF;
   final neon = !clean && neonRom(out);
   final ceil = clean
