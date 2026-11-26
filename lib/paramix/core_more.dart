@@ -2147,7 +2147,7 @@ Rgba numberImage(String text, int w, int h, int scale) {
   final tw = text.length * 4 * scale - scale, x0 = (w - tw) >> 1, y0 = (h - 5 * scale) >> 1;
   for (var i = 0; i < text.length; i++) {
     final dgt = int.tryParse(text[i]);
-    if (dgt == null) throw ArgumentError('not a number: $text');
+    if (dgt == null) throw RangeError('not a number: $text'); // the JS fails on its digit table
     final g = _digits[dgt];
     for (var r = 0; r < 5; r++) {
       for (var c = 0; c < 3; c++) {

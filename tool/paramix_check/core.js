@@ -29,6 +29,14 @@ function perturb(subs, seed) {
     for (let i = 0; i < d.length; i += 4) { const q = r(); if (q < 48) { d[i] = (d[i] + r()) & 255; d[i + 1] ^= r() & 31; } else if (q < 52) d[i + 3] = 0; else if (q < 56) d[i + 3] = 255; }
     return { w: s.w, h: s.h, data: d }; });
 }
+function perturbFew(subs, seed) {
+  const r = rng(seed);
+  return subs.map((s) => { const d = new Uint8ClampedArray(s.data);
+    for (let i = 0; i < d.length; i += 4) { const q = r(); if (q < 48) { d[i] = (r() & 3) * 80; d[i + 1] = (r() & 1) * 200; d[i + 2] &= 0xC0; } else if (q < 52) d[i + 3] = 0; else if (q < 56) d[i + 3] = 255; }
+    return { w: s.w, h: s.h, data: d }; });
+}
+// number of colours of the visible pixels
+function colours(subs) { const m = new Set(); for (const s of subs) for (let i = 0; i < s.data.length; i += 4) if (s.data[i + 3] >= 128) m.add((s.data[i] << 16) | (s.data[i + 1] << 8) | s.data[i + 2]); return m.size; }
 const decSha = (e, palSet) => err(() => { const d = C.spriteDecode(e, palSet), h = new H(); h.s(JSON.stringify(d.header)).s(JSON.stringify(d.palettes)).s(d.width + 'x' + d.height).s(d.cells.length); for (const c of d.cells) h.b(c); h.imgs(d.subs); return h.hex; });
 
 // a fake "original" sprite in the character format (as test/unit_test.js): 4 bpp, palette, transparency
@@ -101,7 +109,7 @@ function dimCard(seed) {
   let o = first; for (let i = 0; i <= n; i++) { w32(d, b + 0x4c + 4 * i, o); if (i < n) o += sizes[i]; }
   o = b + first;
   for (const sz of sizes) { const blob = r() & 7;
-    for (let k = 0; k < sz >> 1; k++) { const q = r(); let v = q < 60 ? 0x07e0 : q < 200 ? (blob * 0x1863 + 0x4208) & 0xFFFF : r() | (r() << 8); w16(d, o + 2 * k, v); }
+    for (let k = 0; k < sz >> 1; k++) { const q = r(); let v = q < 60 ? 0x07e0 : q < 200 ? (blob * 0x1863 + 0x4208) & 0xFFFF : [0xF800, 0x001F, 0xFFFF, 0x0000, 0x8410, 0xFFE0, 0x0010, 0xFC10][r() & 7]; w16(d, o + 2 * k, v); }
     o += sz; }
   return d.map((x) => x ^ 0xff);
 }
@@ -147,7 +155,7 @@ const charSha = (ch) => { const h = new H().s(ch.index).s(ch.baby).s(ch.stage ==
   }
   out('textClean', JSON.stringify(['Mametchi', '  hello   world  ', 'straße', 'ünïcödé', "it's a.b&c!?/", '###', '', null, undefined, 'a\tb\nc', 'ﬁne ﬂow ﬀ ﬃ ﬄ ﬅ ﬆ', 'ı ſ ŉ ǰ ẖ ẗ ẘ ẙ ẚ', 'KK åéî', 'x  y', 'abc123xyz', 'TAMA-GOTCHI_42', 'µ ÿ ǆ ǅ ΐ ա և', 12345].map((s) => C.textClean(s))));
   out('sheetLayout', JSON.stringify([[64, 64, 20], [32, 16, 14], [512, 512, 7], [1281, 5, 3], [1280, 2, 3], [640, 2, 3], [1, 1, 5000], [100, 7, 13], [16, 16, 0], [8, 8, 1]].map((a) => C.sheetLayout(...a))));
-  out('partOptions', JSON.stringify([0, 1, 2, 3, 4, 5].map((k) => C.partOptions(k))) + JSON.stringify(C.partOptions(1, { keepPalette: true })) + JSON.stringify(C.partOptions(4, { keepLength: false, figure: false })));
+  out('partOptions', JSON.stringify([C.partOptions(0), C.partOptions(1), C.partOptions(2), C.partOptions(3), C.partOptions(4), C.partOptions(5), C.partOptions(1, { keepPalette: true }), C.partOptions(4, { keepLength: false, figure: false }), C.partOptions(2, { allowMoreColors: true, keepLength: true })].map((o) => [!!o.keepPalette, !!o.allowMoreColors, !!o.figure, !!o.keepLength])));
   for (const a of [['0123456789', 100, 20, 2], ['42', 32, 32, 3], ['7', 8, 8, 1], ['1000', 64, 64, 5], ['', 5, 5, 1], ['88', 4, 3, 2]]) out('numberImage.' + a[0], imgSha(C.numberImage(...a)));
   out('numberImage.err', err(() => imgSha(C.numberImage('1a', 30, 30, 1))));
   // pictures
@@ -246,10 +254,10 @@ const charSha = (ch) => { const h = new H().s(ch.index).s(ch.baby).s(ch.stage ==
       for (const [k, v] of [[0, e], [1, (() => { const x = e.slice(0, e.length - 1); w32(x, 0, x.length); return x; })()], [2, (() => { const x = new Uint8Array(e.length + 2); x.set(e); w32(x, 0, e.length + 1); return x; })()], [3, e.subarray(0, 20)], [4, (() => { const x = e.slice(); w32(x, 0, e.length + 6); return x; })()], [5, (() => { const x = e.slice(); w32(x, 0, 21); return x; })()]]) P('align' + k, err(() => { const a = C.spriteAlign(v); return a ? a.length + ':' + sha(a) : 'null'; }));
       let subs; try { subs = C.spriteDecode(e).subs; } catch (x) { return; }
       const enc = (n, s, opts) => P('encode.' + n, err(() => { const x = C.spriteEncode(e, s, opts); return x.length + ' ' + sha(x) + ' ' + decSha(x); }));
-      const ps = perturb(subs, 500 + i);
+      const ps = perturb(subs, 500 + i), pf = perturbFew(subs, 600 + i);
       enc('same', subs, {}); enc('keep', subs, { keepPalette: true }); enc('more', ps, { allowMoreColors: true }); enc('quant', ps, {}); enc('keepq', ps, { keepPalette: true }); enc('len', subs, { keepLength: true }); enc('lenq', ps, { keepLength: true, allowMoreColors: true });
-      for (let k = 0; k < 6; k++) { enc('part' + k, subs, C.partOptions(k)); enc('partq' + k, ps, C.partOptions(k)); }
-      enc('partkeep', ps, C.partOptions(0, { keepPalette: true })); enc('nofig', ps, C.partOptions(1, { figure: false, keepLength: false }));
+      for (let k = 0; k < 6; k++) { enc('part' + k, subs, C.partOptions(k)); enc('partq' + k, pf, C.partOptions(k)); }
+      enc('partkeep', ps, C.partOptions(0, { keepPalette: true })); enc('partmany', colours(ps) <= 400 ? ps : pf, C.partOptions(0)); enc('nofig', ps, C.partOptions(1, { figure: false, keepLength: false }));
       P('blank', err(() => sha(C.spriteBlank(e)))); P('blank.part', err(() => sha(C.spriteBlank(e, C.partOptions(1)))));
       const blank = subs.map((s) => C.emptyImage(s.w, s.h)), solid = subs.map((s) => ({ w: s.w, h: s.h, data: new Uint8ClampedArray(s.data.length).fill(255) })), dark = subs.map((s) => ({ w: s.w, h: s.h, data: s.data.map((v, j) => j % 4 === 3 ? 255 : j % 4 === 2 ? 100 : 5) }));
       enc('blank', blank, {}); enc('solid', solid, {}); enc('solid.fig', solid, C.partOptions(0)); enc('dark.fig', dark, C.partOptions(0)); enc('blank.fig', blank, C.partOptions(3));
@@ -306,13 +314,13 @@ const charSha = (ch) => { const h = new H().s(ch.index).s(ch.baby).s(ch.stage ==
         const lay = (l) => new H().imgs(l.body).imgs(l.eyes).img(l.lo).img(l.lc).img(l.em).s(JSON.stringify(l.off)).hex;
         const r1 = [ep.parts.map(imgsSha).join(','), JSON.stringify(ep.eyeBig), JSON.stringify(ep.eyeSmall), lay(ep.big), lay(ep.small), C.eyeVariants(ep.big, true).map(imgsSha).join(','), C.eyeVariants(ep.small, false).map(imgsSha).join(',')].join(' ');
         // the parts into the character group of the synthetic ROM, as the Studio does
-        const g = fake.groups[1], encs = ep.parts.map((subs, k) => err(() => sha(C.spriteEncode(fake.entries[g + k], subs, C.partOptions(k)))));
+        const g = fake.groups[1], encs = ep.parts.map((subs, k) => colours(subs) > 300 ? 'skip' + colours(subs) : err(() => sha(C.spriteEncode(fake.entries[g + k], subs, C.partOptions(k)))));
         const fit = [1, 4].map((k) => { let res = 'none'; C.eyeVariants(k === 1 ? ep.big : ep.small, k === 1).some((v, vi) => { try { res = vi + ':' + sha(C.spriteEncode(fake.entries[g + k], v, C.partOptions(k))); return true; } catch (x) { return false; } }); return res; });
         return sha(r1 + ' ' + encs.join(',') + ' ' + fit.join(','));
       })));
       Q('eyes.scale', err(() => { const ep = C.dimCharPartsWithEyes(ch, rects[0], 0.8, 0.4); return ep ? ep.parts.map(imgsSha).join(',') + JSON.stringify(ep.eyeBig) + JSON.stringify(ep.eyeSmall) : 'null'; }));
       Q('eyes.outside', err(() => { const ep = C.dimCharPartsWithEyes(ch, [im.w - 2, im.h - 2, im.w + 3, im.h + 3]); return ep ? 'parts' : 'null'; }));
-      Q('encode', C.dimCharParts(ch).map((subs, k) => err(() => sha(C.spriteEncode(fake.entries[fake.groups[0] + k], subs, C.partOptions(k))))).join(' '));
+      Q('encode', C.dimCharParts(ch).map((subs, k) => colours(subs) > 300 ? 'skip' + colours(subs) : err(() => sha(C.spriteEncode(fake.entries[fake.groups[0] + k], subs, C.partOptions(k))))).join(' '));
     });
   }
 
@@ -344,10 +352,10 @@ const charSha = (ch) => { const h = new H().s(ch.index).s(ch.baby).s(ch.stage ==
         const e = ctx.entries[i], h = C.spriteHeader(e), k = pick.get(i), px = h.sw * h.sh * h.numSprites;
         let subs; try { subs = C.spriteDecode(e).subs; } catch (x) { P('encode' + i, 'err'); continue; }
         const res = []; const enc = (s, opts) => res.push(err(() => { const x = C.spriteEncode(e, s, opts); return x.length + ':' + sha(x); }));
-        const ps = perturb(subs, i);
+        const ps = perturb(subs, i), pf = perturbFew(subs, i + 9);
         enc(subs, { keepPalette: true }); enc(ps, { keepPalette: true }); enc(subs, { keepLength: true }); res.push(err(() => sha(C.spriteBlank(e))));
         if (px <= 150000) { enc(subs, {}); enc(ps, {}); enc(ps, { allowMoreColors: true }); }
-        if (k >= 0) { enc(subs, C.partOptions(k)); enc(ps, C.partOptions(k)); enc(ps, C.partOptions(k, { keepPalette: true })); res.push(err(() => sha(C.spriteBlank(e, C.partOptions(k))))); }
+        if (k >= 0) { enc(subs, C.partOptions(k)); enc(pf, C.partOptions(k)); enc(ps, C.partOptions(k, { keepPalette: true })); res.push(err(() => sha(C.spriteBlank(e, C.partOptions(k))))); }
         P('encode' + i, sha(res.join(' ')));
       }
     }

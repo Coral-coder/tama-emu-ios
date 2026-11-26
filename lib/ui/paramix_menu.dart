@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import 'device_screen.dart';
+import 'menu_fields_screen.dart';
 import 'studio_screen.dart';
 
 /// Every Paramix Studio tool, one tap each. All of them open the full Studio (offline, in the
@@ -9,12 +10,6 @@ class ParamixMenu extends StatelessWidget {
   const ParamixMenu({super.key});
 
   static const _sections = <(String, List<_Tool>)>[
-    ('Fields and the device menu', [
-      _Tool('All 6 fields + device menu', 'Tropical / Glacier: Land, Water and Sky added from your own ROM. Jade Forest: Sky as 4th field. '
-          'Several saves, items, Tamapoints, change Tama (A + C on the home screen).', Icons.public_rounded, Color(0xFF2EC4B6), tab: 'feld'),
-      _Tool('Neon Planets menu', 'Menu with saves, items, Tamapoints and Tama, programs in the menu, own characters for its planets '
-          '(Neon switches planets itself: no field switch).', Icons.auto_awesome_rounded, Color(0xFFB04CFF), tab: 'feld'),
-    ]),
     ('Emulators inside your Paradise', [
       _Tool('TamaEmu · T7 · T18 · V1 · V3', 'Plus Color, iD L, P\'s, 4U+, 4U; Tama-Go and Friends; Meets / On; P1, P2, Angel, '
           'Digimon; Connection V3. Up to twelve programs, start device, visits between two Paradise.', Icons.memory_rounded, Color(0xFFFF9F43), tab: 'emu'),
@@ -60,6 +55,14 @@ class ParamixMenu extends StatelessWidget {
               title: const Text('Device: read and write (quick)'),
               subtitle: const Text('The app\'s own device page: dump, write changes, keep the saves.'),
               onTap: () => go(const DeviceScreen()),
+            ),
+          ),
+          Card(
+            child: ListTile(
+              leading: const CircleAvatar(backgroundColor: Color(0xFF2EC4B6), child: Icon(Icons.public_rounded, color: Colors.white)),
+              title: const Text('Menu & fields'),
+              subtitle: const Text('Several saves, items, Tamapoints, change Tama on the toy; all 6 fields on Tropical / Glacier, Sky on Jade Forest. Native.'),
+              onTap: () => go(const MenuFieldsScreen()),
             ),
           ),
           for (final (title, tools) in _sections) ...[
