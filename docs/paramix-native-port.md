@@ -60,16 +60,18 @@ docs/paramix-ui-spec.md. Its logic is in three files (pure Dart, names as in app
   3). It returns the ROM, the file name, the ranges that come from the image even with "Keep
   saves" and the messages; where the page stops with an error toast it throws `ComposeError` with
   the same English text.
-- lib/paramix/doom_port.dart: the parts of doom.js that only move bytes (doomPatch, the keys), and
-  `DoomPort`, the interface for the WAD conversion (wadEpisodes, wadMerge, wadSub, gbaExtras,
-  convert), which is not ported. `BuildState.doomCompute(port, wad)` is app.js doomCompute over it;
-  `DoomData` (its result) is the input of the build. Without a port the build uses the
-  conversions in `DoomData`. Wolf3D packs (wolf.js build) are an input too (`addWolf(pack)`).
+- lib/paramix/doom_port.dart: the key layout as the state keeps it, DOOM into the ROM, and
+  `DoomPort`, the WAD conversion the pipeline calls (wadEpisodes, wadMerge, wadSub, gbaExtras,
+  convert). `DoomDartPort` (the default of `BuildAssets.doomPort`) is doom.dart.
+  `BuildState.chooseWad(wad)` is the page's WAD dialog: `doomCompute` (app.js) and `setDoom`.
+  `BuildState.chooseWolf(files)` builds the Wolf3D pack with wolf.dart and adds it (`addWolf`).
 
 Check: tool/paramix_check/compose.js loads the page as built (dist/ParamixStudio.html) under jsdom
 and drives it through its own handlers; tool/paramix_check/compose_check.dart does the same steps
 with `BuildState`. The cases are in compose_cases.json (written by compose_cases_gen.js), the
-steps are explained in compose_cases.md.
+steps are explained in compose_cases.md. flash.dart's withRescue differs from flash.js (it takes
+the battery picture from the image); the build uses its own port of the Studio's in
+compose_full.dart.
 
     npm install --prefix <scratch> jsdom
     DUMPS=<dumps> JSDOM=<scratch>/node_modules/jsdom OUT=<scratch> sh tool/paramix_check/compose_run.sh
@@ -97,3 +99,24 @@ on both sides; only doom needs the dumps):
 Assets needed: doom.dart takes doom/doom_app.bin and doom/doom_xip.bin (or doomf_app.bin and
 doomf_xip.bin) and emu/stub_tpl.bin as `DoomEmb`; doom/mcuwad.wasm is not needed. wolf.dart and
 visit.dart need none (wolf/wolf.bin and wolf/wolfsod.bin are for emu_build.dart).
+
+## Save tab and the device panel's save buttons (Paradise save)
+
+- lib/paramix/save_flow.dart: the handlers of app.js for the Paradise save without their page glue
+  (spec section 5): `devSaveRead` ("Back up save"), `devSaveCheck` / `devSaveWrite` ("Save to
+  device"), `slotWriteCheck` / `slotWrite` / `slotClear` (slots of the menu on the device),
+  `romSave`, `romSlotSave`, `romSaveExport`, `petOpen`, `petChars`, `petNow`, `petChange`,
+  `petApply`, `petSaveRom`, `petSaveFile`, the texts (`saveTexts`, `t`, `saveMsg`). The device is
+  `SaveDevice` (`ParadiseSaveDevice` for flash.dart's `Paradise`); `usedSectors`, `changed` and
+  `writeSectors` (with the rescue guard) are flash.js' own, over that interface. Not in the
+  Studio: `romSaveWrite` (any save into a ROM, with the checks of "Save to device"), `gameSave`
+  (the save of a game of the app, through the image), `charLooks` (names and pictures).
+- The emulator saves of the Save tab ("Programs") and of "Back up save" (TamaEmu, T7Emu) are not
+  ported here.
+- Screen: lib/ui/saves_screen.dart, backups in lib/services/save_backups.dart.
+
+Check (the handlers need the DOM, so saveflow.js restates their bodies over saves.js, feld.js and
+flash.js' Paradise object on a flash in memory; texts are read out of app.js) and the simulated toy:
+
+    DUMPS=<dumps> node tool/paramix_check/saveflow.js > a; DUMPS=<dumps> dart run tool/paramix_check/saveflow_check.dart > b; cmp a b
+    flutter test test/flash_sim_test.dart

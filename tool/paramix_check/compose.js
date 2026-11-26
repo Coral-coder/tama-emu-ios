@@ -16,15 +16,17 @@
 //   confirm answers yes and its question is printed.
 // - timers of 400 ms and more are dropped: the quiet trial build for the free-room bar (roomSoon) and the hiding
 //   of the toast. roomSoon only fills state.roomFree.
-// - the WAD conversion of doom.js needs a real WAD: ParamixDoom.wadEpisodes, wadSub, gbaExtras and convert are
-//   replaced by a synthetic converter, and ParamixDoom.doomBuild by its own source text over those (so that it
-//   calls them); doomPatch, doomKeysSet, doomCompute (app.js) are the real ones.
+// - WADs: synthetic ones (compose_wad.js, as doom.js of the checks) go through doom.js and its WebAssembly converter
+//   as they are. They are small, so for the cases about room there is a second kind: a "WAD" that starts with FAKE
+//   is answered by a synthetic converter that gives data of the wanted size (ParamixDoom.wadEpisodes, wadMerge,
+//   wadSub, gbaExtras and convert look at the first bytes and pass everything else on to the real functions;
+//   ParamixDoom.doomBuild is its own source text again so that it calls them).
 // - ParamixWolf.build needs the game's files: replaced by one that returns the synthetic pack.
 // - imported saves, eye and mouth shifts, blank sprites and grow-up pictures ("raw" steps) are put into
 //   window.__paramix (the page's state object) directly, as their handlers would.
 'use strict';
 const fs = require('fs'), path = require('path'), crypto = require('crypto');
-const S = require('./compose_syn.js');
+const S = require('./compose_syn.js'), WG = require('./compose_wad.js');
 const ROOT = path.join(__dirname, '..', '..');
 const PS = path.join(ROOT, 'third_party', 'paramix-studio');
 const { JSDOM, VirtualConsole } = require(process.env.JSDOM || 'jsdom');
@@ -73,6 +75,7 @@ function syn(spec) {
     case 'wolf': b = S.wolfPack(n(1), n(2), n(3)); break;
     case 'fig': b = S.t7Fig(n(1), n(2), n(3)); break;
     case 'wad': b = ascii('FAKEWAD ' + p.slice(1).join(' ')); break;   // episodes, KB with music, KB without, seed
+    case 'iwad': b = WG.baseWad({ seed: n(1), eps: p[2] === 'M' ? '' : p[2], d2: p[2] === 'M', perEp: n(3), mon: 1 }); break;   // a synthetic WAD for the real converter
     case 'rnd': b = S.rndBytes(n(1), n(2)); break;
     case 'junk': b = S.rndBytes(n(1), n(2)); b[0] = 0x12; break;
     default: throw new Error('syn ' + spec);
@@ -115,9 +118,13 @@ class Page {
       } });
     const w = this.w = this.dom.window; this.st = w.__paramix; this.E = w.ParamixEmu; this.C = w.ParamixCore;
     const D = w.ParamixDoom;
-    D.wadEpisodes = fakeDoom.wadEpisodes; D.wadMerge = fakeDoom.wadMerge; D.gbaExtras = fakeDoom.gbaExtras;
-    D.wadSub = (src, eps, music) => this.u8(fakeDoom.wadSub(src, eps, music));
-    D.convert = async (sub) => this.u8(fakeDoom.convert(sub));
+    // a "WAD" that starts with FAKE goes to the synthetic converter (sizes as wanted), any other to doom.js itself
+    const R = { wadEpisodes: D.wadEpisodes, wadMerge: D.wadMerge, gbaExtras: D.gbaExtras, wadSub: D.wadSub, convert: D.convert }, fake = (b) => b.length > 4 && b[0] === 0x46 && b[1] === 0x41 && b[2] === 0x4B && b[3] === 0x45;
+    D.wadEpisodes = (x) => (fake(x) ? fakeDoom.wadEpisodes(x) : R.wadEpisodes(x));
+    D.wadMerge = (base, pw) => (fake(base) ? base : R.wadMerge(base, pw));
+    D.gbaExtras = (x) => (fake(x) ? new w.Uint8Array(0) : R.gbaExtras(x));
+    D.wadSub = (src, eps, music, onlyMaps) => (fake(src) ? this.u8(fakeDoom.wadSub(src, eps, music)) : R.wadSub(src, eps, music, onlyMaps));
+    D.convert = async (sub, extras, wasm) => (fake(sub) ? this.u8(fakeDoom.convert(sub)) : R.convert(sub, extras, wasm));
     // doom.js doomBuild, word for word, over the functions above
     D.doomBuild = async function doomBuild(rom, wad, opts, emb, E) {
       const eps = opts.episode || '1';
@@ -277,6 +284,7 @@ async function run(name, steps, out) {
         break; }
       default: throw new Error('step ' + op);
     }
+    if (!P) continue;
     await P.settle();
     for (const q of P.confirms) say(i, 'confirm', q);
     if (res !== undefined) say(i, op, res);

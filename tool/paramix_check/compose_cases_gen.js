@@ -23,7 +23,7 @@ const P = { idl: 'tama:idl:30:77', idl2: 'tama:idl:30:23', pc: 'tama:pc:40:11', 
   go: 't7:go:5', go2: 't7:go:6', fr: 't7:friends:7', t18: 't18:131:0:38', t18b: 't18:132:1:30', v1: 'v1:12288:61', v1b: 'v1:16384:62', v3: 'v3:63',
   gb: 'gb:0:0:TETRIS:71', gb2: 'gb:3:0:ZELDA:72', gbc: 'gb:5:128:GOLD:74', sms: 'sms:131072:4:91', sms2: 'sms:32768:3:92', gg: 'sms:262144:6:93', pm: 'pm:524288:101', pm2: 'pm:8704:102', bios: 'pmbios:104',
   ab: 'ab:8192:111', ab2: 'ab:20000:112', wolf: 'wolf:1193046:0:121', wolfSh: 'wolf:393216:1:122', sod: 'wolf:589824:2:123', fig: 'fig:1048576:196608:51', fig2: 'fig:262144:74565:55',
-  wad: 'wad:1:900:700:5', wad3: 'wad:123:900:700:6', wadBig: 'wad:1:6000:5000:7', wadMid: 'wad:1:5000:3000:8', wadM: 'wad:M:3000:2500:9' };
+  wad: 'wad:1:900:700:5', wad3: 'wad:123:900:700:6', wadBig: 'wad:1:6000:5000:7', wadMid: 'wad:1:5000:3000:8', wadM: 'wad:M:3000:2500:9', iw1: 'iwad:8193:1:2', iw3: 'iwad:8194:123:2', iwM: 'iwad:8197:M:3' };
 
 // ---------------------------------------------------------------- A. every edition as it is
 for (const ed of EDS) C('orig.' + ed, open(ed), state, [['names']], plan, save);
@@ -178,7 +178,14 @@ C('doom.clean.d2', open('water'), [['wad', P.wadM]], state, set('launch', true),
 C('doom.clean.big', open('jade'), set('launch', true), set('clean', true), [['wad', 'wad:1:14000:13500:10']], state, save, [['wad', 'wad:12:7000:6500:11']], state, plan, save);
 
 // without a WAD converter: the conversions of doomCompute go in (the page converts again; the result is the same)
-C('doom.noport', [['noport']], open('water'), [['wad', P.wad3]], [['doomEp', '2']], save, again, [['wad', P.wadMid]], state, save, again);
+C('doom.noport', [['noport']], open('water'), [['wad', P.iw3]], [['doomEp', '2']], save, again);
+// synthetic WADs through doom.js / doom.dart and the converter itself
+C('doom.real.water', open('water'), [['wad', P.iw1]], state, plan, save, again, [['wad', P.iw3]], [['doomEp', '3']], [['doomMusic', false]], state, plan, save, again, [['doomKeys', { fire: 4, back: 1 }]], save, again);
+C('doom.real.launch', open('land'), set('launch', true), [['wad', P.iw3]], [['doomEp', '2']], fw(P.go), state, plan, save, again);
+C('doom.real.noa0', open('tropical'), set('launch', true), [['wad', P.iw3]], [['doomSel', '2', true]], fw(P.go), state, plan, save, again, [['doomWhole', true]], state, save, again);
+C('doom.real.clean', open('sky'), set('launch', true), set('clean', true), [['wad', P.iw3]], [['doomSel', '3', true]], [['doomMusic', false]], fw(P.v1), state, plan, save, again, [['wad', P.iw3]], [['doomWhole', true]], state, save, again);
+C('doom.real.d2', open('neon'), [['wad', P.iwM]], set('launch', true), set('clean', true), [['wad', P.iwM]], state, plan, save, again);
+C('doom.real.bad', open('water'), [['wad', 'rnd:5000:3']], [['wad', 'iwad:8200:5:1']], state, save);
 
 // ---------------------------------------------------------------- K. characters and pictures
 C('spr.numbers', open('water'), [['numbers']], state, plan, compose, save, again);

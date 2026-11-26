@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 import 'device_screen.dart';
 import 'menu_fields_screen.dart';
 import 'names_screen.dart';
+import 'saves_screen.dart';
 import 'visit_screen.dart';
 import 'studio_screen.dart';
 
@@ -29,7 +30,6 @@ class ParamixMenu extends StatelessWidget {
       _Tool('Cards', 'Characters from character cards, TamaSma cards and DIM cards.', Icons.style_rounded, Color(0xFFFFB300), tab: 'dim'),
     ]),
     ('Saves and the device', [
-      _Tool('Save games', 'Save editor (level, character, care), back up and restore the Paradise and TamaEmu saves.', Icons.save_rounded, Color(0xFF42A5F5), tab: 'save'),
       _Tool('Device (Studio)', 'Read the ROM, write only what changed, keep the saves; over your dongle.', Icons.usb_rounded, Color(0xFF2F6BFF), button: 'btnDevice'),
     ]),
   ];
@@ -81,6 +81,14 @@ class ParamixMenu extends StatelessWidget {
               title: const Text('Playdate with a visitor'),
               subtitle: const Text('The app plays a second Paradise that visits your real toy over the dongle. Native.'),
               onTap: () => go(const VisitScreen()),
+            ),
+          ),
+          Card(
+            child: ListTile(
+              leading: const CircleAvatar(backgroundColor: Color(0xFF42A5F5), child: Icon(Icons.save_rounded, color: Colors.white)),
+              title: const Text('Save games: back up, restore, edit'),
+              subtitle: const Text('The save of your Paradise from the toy, a ROM, a file or a game here: level, Tama, care; backups; back to the toy. Native.'),
+              onTap: () => go(const SavesScreen()),
             ),
           ),
           for (final (title, tools) in _sections) ...[

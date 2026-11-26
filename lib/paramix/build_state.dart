@@ -24,16 +24,17 @@ import 'emu_build.dart' as E;
 import 'feld.dart' as F;
 import 'saves.dart' as SV;
 import 'six.dart' as S6;
+import 'wolf.dart' as W;
 
 export 'compose.dart' show ComposeError;
-export 'doom_port.dart' show DoomEmbedded, DoomPort;
+export 'doom_port.dart' show DoomDartPort, DoomEmbedded, DoomPort;
 export 'emu_build.dart' show EmuBinaries, EmuOpt, Extra, T7Fig;
 export 'feld.dart' show FeldEmbedded;
 
 // ------------------------------------------------------------------ assets
 /// The programs the Studio embeds (assets/paramix/, the files of third_party/paramix-studio/`dir`/).
 class BuildAssets {
-  BuildAssets({required this.emu, this.feld, this.six, this.flash, this.doom, this.doomPort});
+  BuildAssets({required this.emu, this.feld, this.six, this.flash, this.doom, this.doomPort = const D.DoomDartPort()});
 
   /// emu.bin, stub_tpl.bin, t7.bin, t7x.bin, t18.bin, t18x.bin, v1.bin, v3.bin, gb.bin, gbc.bin, sms.bin, pm.bin,
   /// ab.bin, wolf.bin, wolfsod.bin (JS: E.embedded(), E.t7Embedded() ...).
@@ -51,7 +52,8 @@ class BuildAssets {
   /// doom_app.bin, doom_xip.bin, doomf_app.bin, doomf_xip.bin (JS: D.embedded()).
   final D.DoomEmbedded? doom;
 
-  /// The WAD converter, when there is one (see doom_port.dart).
+  /// The WAD converter: doom.dart unless another one is given (null: none, the build then uses the conversions
+  /// of [DoomData]).
   final D.DoomPort? doomPort;
 }
 
@@ -1576,6 +1578,23 @@ class BuildState {
     _renderDoom();
   }
 
+  /// fileWad: a WAD chosen in the DOOM tab: converted ([doomCompute]) and taken ([setDoom]). False with the message
+  /// when it is not a WAD the Studio takes or DOOM cannot go here.
+  Future<bool> chooseWad(Uint8List w) async {
+    if (!ctxClean && !launch && !a0Free()) {
+      toast('In this edition DOOM works in a start device only (Menu tab).', true);
+      return false;
+    }
+    try {
+      return setDoom(await doomCompute(w));
+    } catch (err) {
+      doom = null;
+      toast('WAD not recognised: ${em(err)}', true);
+      _renderDoom();
+      return false;
+    }
+  }
+
   /// fileWad after the conversion: [d] is what app.js doomCompute returns. False (with the message) where DOOM
   /// cannot go.
   bool setDoom(DoomData d) {
@@ -1750,10 +1769,22 @@ class BuildState {
     await addExtra(bin, fname, E.Extra(kind: 'ab', rom: bin, title: E.abTitle(fname), keys: [...abKeys!], inv: abInv != false));
   }
 
-  /// fileWolf after the pack is built (wolf.js build is not ported: the pack is the input): one Wolfenstein 3D and
-  /// one Spear of Destiny, a new one replaces the old one; room check.
-  Future<void> addWolf(Uint8List pack) async {
-    final sod = E.wolfSod(pack);
+  /// fileWolf: the game's files by name (VSWAP.WL6 ...): the pack is built (wolf.dart) and added with [addWolf].
+  Future<void> chooseWolf(Map<String, Uint8List> files) async {
+    final W.WolfPack r;
+    try {
+      r = W.build(files);
+    } catch (err) {
+      toast('Wolfenstein 3D: ${msgOf(err)}', true);
+      return;
+    }
+    await addWolf(r.pack, sod: r.sod);
+  }
+
+  /// fileWolf after the pack is built: one Wolfenstein 3D and one Spear of Destiny, a new one replaces the old
+  /// one; room check. [sod]: what wolf.js build says (default: the pack's own flag).
+  Future<void> addWolf(Uint8List pack, {bool? sod}) async {
+    sod ??= E.wolfSod(pack);
     final old = extras.indexWhere((y) => y.kind == 'wolf' && E.wolfSod(y.pack) == sod); // 1.6.11 test2: Wolf3D and SOD side by side
     final x = E.Extra(kind: 'wolf', pack: pack, keyMap: {...wolfKeysNow()})..fresh = true;
     if (old < 0 && extras.length >= E.appxMax) {
@@ -1922,6 +1953,13 @@ class BuildState {
     _renderEmu();
   }
 
+  /// The row of entry [i] is opened (▾): the page gives a TamaEmu or T18Emu its options object then, which counts
+  /// when the overview compares the list with the loaded ROM.
+  void openExtra(int i) {
+    final x = extras[i];
+    if (x.kind == 'tama' || x.kind == 't18') x.opt ??= const E.EmuOpt();
+  }
+
   /// "Back from programs" (exitKey select).
   void setExitKey(int v) => exitKey = v;
 
@@ -1929,7 +1967,8 @@ class BuildState {
   /// app.js doomCompute (1.7.3 test17): the conversions of a WAD (and its extra WADs) in one place: the base with
   /// map packs merged, each episode, the whole WAD, and each own episode of an extra WAD (Sigil) as its own entry.
   /// The conversion is [port]'s (doom.js is not ported).
-  Future<DoomData> doomCompute(D.DoomPort port, Uint8List w, [List<DoomPwad> pwads = const [], Set<String>? keepSel]) async {
+  Future<DoomData> doomCompute(Uint8List w, {List<DoomPwad> pwads = const [], Set<String>? keepSel, D.DoomPort? port0}) async {
+    final port = port0 ?? assets.doomPort ?? const D.DoomDartPort();
     if (assets.doom == null) throw StateError('This build does not contain the DOOM program.');
     final mapPw = pwads.where((p) => p.eps.isEmpty).toList(), epPw = pwads.where((p) => p.eps.isNotEmpty).toList();
     final wm = mapPw.isNotEmpty ? port.wadMerge(w, [for (final p in mapPw) (data: p.data, slot: false)]) : w;

@@ -167,6 +167,118 @@ Uint8List dlStrip(BuildState s, Uint8List rom) {
   return out;
 }
 
+// ------------------------------------------------------------------ from flash.js: withRescue
+// (flash.dart has rescueBlock and a withRescue that takes the picture from the image; the Studio's makes the
+// "battery empty" picture of the image's edition, or the text for a ROM without the Paradise.)
+const Map<String, int> _batPicIdx = {'Land': 53, 'Water': 53, 'Sky': 53, 'Jade Forest': 54, 'Tropical': 56, 'Glacier': 56};
+
+/// test23 BAT_PIC: the Paradise's "battery empty" picture in the last sector of the rescue block (0xFFF000), for the
+/// emulators to show before they switch off on empty batteries: "BAT1", byte count, 16 colours (RGB565), then one byte
+/// per run (colour << 4 | length - 1), 128 x 128 row by row. The sprite's number differs by edition.
+Uint8List? _batPic(Uint8List img) {
+  try {
+    final ctx = C.openRom(img), i = _batPicIdx[ctx.edition];
+    if (i == null || i >= ctx.entries.length) return null;
+    final s = C.spriteDecodeAll(ctx.entries[i]).subs[0];
+    if (s.w != 128 || s.h != 128) return null;
+    final pal = <int>[], px = Uint8List(128 * 128), d = s.data;
+    for (var k = 0; k < px.length; k++) {
+      final c = d[4 * k + 3] != 0 ? (((d[4 * k] * 31 + 127) ~/ 255) << 11) | (((d[4 * k + 1] * 63 + 127) ~/ 255) << 5) | ((d[4 * k + 2] * 31 + 127) ~/ 255) : 0xFFFF;
+      var j = pal.indexOf(c);
+      if (j < 0) {
+        if (pal.length >= 16) return null;
+        pal.add(c);
+        j = pal.length - 1;
+      }
+      px[k] = j;
+    }
+    final out = Uint8List(FL.sector)..fillRange(0, FL.sector, 0xFF);
+    var n = 0;
+    for (var k = 0; k < px.length;) {
+      var r = 1;
+      while (r < 16 && k + r < px.length && px[k + r] == px[k]) {
+        r++;
+      }
+      if (40 + n >= FL.sector) return null;
+      out[40 + n++] = (px[k] << 4) | (r - 1);
+      k += r;
+    }
+    _batHead(out, n, pal);
+    return out;
+  } catch (_) {
+    return null;
+  }
+}
+
+void _batHead(Uint8List out, int n, List<int> pal) {
+  out.setAll(0, [0x42, 0x41, 0x54, 0x31, n & 255, (n >> 8) & 255, (n >> 16) & 255, (n >> 24) & 255]); // "BAT1", count
+  for (var j = 0; j < 16; j++) {
+    final c = j < pal.length ? pal[j] : 0;
+    out[8 + 2 * j] = c & 255;
+    out[9 + 2 * j] = c >> 8;
+  }
+}
+
+/* 1.7.2: a ROM without the Paradise has no picture of its own: the same sector with our text instead (white on black,
+ * "BATTERY EMPTY, SHUTTING DOWN", own 5 x 7 letters at twice the size) */
+const Map<String, String> _batFont = {
+  'A': '01110100011000111111100011000110001', 'B': '11110100011000111110100011000111110', 'D': '11110100011000110001100011000111110', //
+  'E': '11111100001000011110100001000011111', 'G': '01110100011000010111100011000101111', 'H': '10001100011000111111100011000110001', //
+  'I': '01110001000010000100001000010001110', 'M': '10001110111010110101100011000110001', 'N': '10001110011010110011100011000110001', //
+  'O': '01110100011000110001100011000101110', 'P': '11110100011000111110100001000010000', 'R': '11110100011000111110101001001010001', //
+  'S': '01111100001000001110000010000111110', 'T': '11111001000010000100001000010000100', 'U': '10001100011000110001100011000101110', //
+  'W': '10001100011000110101101011010101010', 'Y': '10001100010101000100001000010000100',
+};
+Uint8List _batText() {
+  final px = Uint8List(128 * 128);
+  const lines = ['BATTERY', 'EMPTY', 'SHUTTING', 'DOWN'];
+  for (var li = 0; li < lines.length; li++) {
+    final ln = lines[li], w = ln.length * 12 - 2, x0 = (128 - w) >> 1, y0 = 22 + li * 22;
+    for (var c = 0; c < ln.length; c++) {
+      final g = _batFont[ln[c]];
+      if (g == null) continue;
+      for (var y = 0; y < 7; y++) {
+        for (var x = 0; x < 5; x++) {
+          if (g[y * 5 + x] != '1') continue;
+          for (var dy = 0; dy < 2; dy++) {
+            for (var dx = 0; dx < 2; dx++) {
+              px[(y0 + 2 * y + dy) * 128 + x0 + c * 12 + 2 * x + dx] = li < 2 ? 1 : 2;
+            }
+          }
+        }
+      }
+    }
+  }
+  final out = Uint8List(FL.sector)..fillRange(0, FL.sector, 0xFF);
+  var n = 0;
+  for (var k = 0; k < px.length;) {
+    var r = 1;
+    while (r < 16 && k + r < px.length && px[k + r] == px[k]) {
+      r++;
+    }
+    out[40 + n++] = (px[k] << 4) | (r - 1);
+    k += r;
+  }
+  _batHead(out, n, const [0x0000, 0xFFFF, 0xA514]);
+  return out;
+}
+
+/// The image with the rescue start, or null when 0xFF0000 holds something else (flash.js withRescue).
+Uint8List? withRescue(Uint8List img, Uint8List app) {
+  final rb = FL.rescueBlock(app, Uint8List.sublistView(img, 0, FL.sector), F.isClean(img) ? _batText() : _batPic(img));
+  if (rb == null) return null;
+  var same = true, free = true;
+  for (var i = 0; i < FL.block64; i++) {
+    if (img[FL.rescueOff + i] != rb[i]) same = false;
+    if (img[FL.rescueOff + i] != 0xFF) free = false;
+  }
+  if (same) return img;
+  if (!free && !FL.isRescue(img, FL.rescueOff)) return null; // test18 RESCUE_OLD: one of an earlier Studio is renewed
+  final out = Uint8List.fromList(img);
+  out.setAll(FL.rescueOff, rb);
+  return out;
+}
+
 List<F.FeldApp> _feldApps(List<E.AppEntry> apps) => [for (final a in apps) F.FeldApp(a.src, a.name ?? '')];
 
 E.EmuApps _progs(BuildState s, {required bool doom}) {
@@ -326,7 +438,7 @@ Future<ComposeResult?> composeClean(BuildState s) async {
     return null;
   }
   {
-    final w = FL.withRescue(rom, emb);
+    final w = withRescue(rom, emb);
     if (w == null) {
       s.toast('Menu not built in: rescue', true);
       return null;
@@ -643,7 +755,7 @@ Future<ComposeResult?> composeRaw(BuildState s) async {
       rom = dlStrip(s, rom);
       final fl = s.assets.flash;
       if (fl != null) {
-        final w = FL.withRescue(rom, fl);
+        final w = withRescue(rom, fl);
         if (w != null) {
           rom = w;
           dlRes = true;

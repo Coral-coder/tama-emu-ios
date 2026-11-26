@@ -10,7 +10,7 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:tama_tools/paramix/bytes.dart';
 import 'package:tama_tools/paramix/feld.dart' as feld;
-import 'package:tama_tools/paramix/flash.dart' show FlashError, withRescue;
+import 'package:tama_tools/paramix/flash.dart' show FlashError, rescueBlock;
 import 'package:tama_tools/paramix/save_flow.dart';
 import 'package:tama_tools/paramix/saves.dart';
 
@@ -73,6 +73,15 @@ class MemDevice implements SaveDevice {
 
   @override
   Future<void> writeFinish() async {}
+}
+
+/// The rescue start on the toy as writeSectors looks for it; false when 0xFF0000 is in use.
+bool rescueOn(Uint8List fl, Uint8List guard) {
+  if (!allFF(fl, 0xFF0000, 0x10000)) return false;
+  final rb = rescueBlock(guard, Uint8List.sublistView(fl, 0, 0x1000), Uint8List.fromList(fl.sublist(0xFFF000, 0x1000000)));
+  if (rb == null) return false;
+  fl.setAll(0xFF0000, rb);
+  return true;
 }
 
 String logStr(List<int> l) => '${l.length}:${sha(l.map(hex).join(','))}';
@@ -171,13 +180,9 @@ Future<void> main() async {
     if (ed0 != null) {
       for (final (tag, sv, g) in [('edited', ed0, null), ('backup', back, null), ('edited.guard', ed0, guard), ('backup.guard', back, guard)]) {
         await T('$name.devSaveWrite.$tag', () async {
-          var fl = Uint8List.fromList(rom);
+          final fl = Uint8List.fromList(rom);
           var on = 'none';
-          if (g != null) {
-            final w = withRescue(fl, g);
-            on = w != null ? 'on' : 'busy';
-            if (w != null) fl = w;
-          }
+          if (g != null) on = rescueOn(fl, g) ? 'on' : 'busy';
           final d2 = MemDevice(fl, ed, const ParaClockIn(9, 0xE0));
           var s2 = sv;
           if (tag.startsWith('backup')) {
@@ -197,8 +202,8 @@ Future<void> main() async {
       }
       for (final (tag, g) in [('cancel', null), ('cancel.guard', guard)]) {
         await T('$name.devSaveWrite.$tag', () async {
-          var fl = Uint8List.fromList(rom);
-          if (g != null) fl = withRescue(fl, g) ?? fl;
+          final fl = Uint8List.fromList(rom);
+          if (g != null) rescueOn(fl, g);
           final d2 = MemDevice(fl, ed, const ParaClockIn(9, 0xE0)), c = devSaveCheck(ed0, d2.edition, d2.name);
           final need = g != null ? 2 : 1;
           String r;

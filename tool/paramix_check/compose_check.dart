@@ -21,6 +21,7 @@ import 'package:tama_tools/paramix/feld.dart' as F;
 import 'package:tama_tools/paramix/six.dart' as S6;
 
 import 'compose_syn.dart' as S;
+import 'compose_wad.dart' as WG;
 
 late final String ps;
 Uint8List bin(String f) => File('$ps/$f').readAsBytesSync();
@@ -69,6 +70,8 @@ Uint8List syn(String spec) {
       b = S.t7Fig(n(1), n(2), n(3));
     case 'wad':
       b = ascii('FAKEWAD ${p.sublist(1).join(' ')}'); // episodes, KB with music, KB without, seed
+    case 'iwad': // a synthetic WAD for the real converter: seed, episodes ('M': DOOM II), maps per episode
+      b = WG.baseWad(WG.BaseOpt(n(1), eps: p[2] == 'M' ? '' : p[2], d2: p[2] == 'M', perEp: n(3), mon: 1));
     case 'rnd':
       b = S.rndBytes(n(1), n(2));
     case 'junk':
@@ -81,21 +84,26 @@ Uint8List syn(String spec) {
 }
 
 /// the synthetic converter: a "WAD" is the text `FAKEWAD episodes KB-with-music KB-without seed`
+bool isFake(Uint8List b) => b.length > 4 && b[0] == 0x46 && b[1] == 0x41 && b[2] == 0x4B && b[3] == 0x45; // "FAKE"
+
 class FakeDoom implements DoomPort {
+  static const real = DoomDartPort();
   @override
-  List<String> wadEpisodes(Uint8List w) => str(w).split(' ')[1].split('');
+  List<String> wadEpisodes(Uint8List w) => isFake(w) ? str(w).split(' ')[1].split('') : real.wadEpisodes(w);
   @override
-  Uint8List wadMerge(Uint8List base, List<({Uint8List data, bool slot})> pw) => base;
+  Uint8List wadMerge(Uint8List base, List<({Uint8List data, bool slot})> pw) => isFake(base) ? base : real.wadMerge(base, pw);
   @override
   Uint8List wadSub(Uint8List src, String eps, bool music, [Set<String>? only]) {
+    if (!isFake(src)) return real.wadSub(src, eps, music, only);
     final q = str(src).split(' ');
     return ascii(['FAKESUB', eps, music ? 1 : 0, q[2], q[3], q[4]].join(' '));
   }
 
   @override
-  Uint8List gbaExtras(Uint8List wad) => Uint8List(0);
+  Uint8List gbaExtras(Uint8List wad) => isFake(wad) ? Uint8List(0) : real.gbaExtras(wad);
   @override
   Future<Uint8List> convert(Uint8List sub, Uint8List extras) async {
+    if (!isFake(sub)) return real.convert(sub, extras);
     final q = str(sub).split(' '), eps = q[1].split(''), music = q[2] == '1', kb = int.parse(music ? q[3] : q[4]), seed = int.parse(q[5]);
     final lumps = <(String, Uint8List)>[('PLAYPAL', S.rndBytes(768, seed)), ('COLORMAP', S.rndBytes(34 * 256, seed + 1))];
     for (final e in eps) {
@@ -215,7 +223,6 @@ Future<void> run(String name, List steps, List<String> out) async {
   BuildState? s0;
   Uint8List? last;
   var lastName = '';
-  final port = FakeDoom();
   var useAssets = assets;
   void say(int i, String op, Object v) => out.add('$name $i $op: ${'$v'.replaceAll('\n', ' | ')}');
   for (var i = 0; i < steps.length; i++) {
@@ -350,19 +357,7 @@ Future<void> run(String name, List steps, List<String> out) async {
       case 'wolf':
         await st().addWolf(syn(a[0] as String));
       case 'wad':
-        final s = st();
-        // fileWad: DOOM_LAUNCH: without room at 0x0A0000 DOOM goes only into the menu of a start device
-        if (!s.ctxClean && !s.launch && !s.a0Free()) {
-          s.toast('In this edition DOOM works in a start device only (Menu tab).', true);
-        } else {
-          try {
-            s.setDoom(await s.doomCompute(port, syn(a[0] as String)));
-          } catch (e) {
-            s.doom = null;
-            s.toast('WAD not recognised: ${em(e)}', true);
-            s.sync();
-          }
-        }
+        await st().chooseWad(syn(a[0] as String));
       case 'doomEp':
         st().setDoomEp(a[0] as String);
       case 'doomMusic':
@@ -447,7 +442,7 @@ Future<void> run(String name, List steps, List<String> out) async {
         res = await row(st(), a);
       case 'numbers':
         numbers(st());
-        st().toast('Every character now shows its number. Save the ROM and try it out.');
+        st().toast('Every character now shows its number. Save, flash, raise and note which number shows up at which stage.');
       case 'raw':
         final s = st();
         switch (a[0]) {
@@ -588,24 +583,37 @@ Future<Object?> row(BuildState s, List a) async {
       s.addFigures([(a.length > 3 ? a[3] as String : 'fig.bin', syn(a[2] as String))]);
     } else if (what == 'check' || what == 'sel') {
       if (gone) return 'nodetail';
+      // mainSet of renderApps: which settings the row of the main program has
+      final cfg = em == null ? romEmuCfg(s.rom) : null;
+      final dev = em != null ? em.dev : (cfg != null ? cfg.dev : F.emuType(s.rom));
+      final tamaDev = const ['pc', 'idl', 'ps', '4u', '4u-plain'].contains(dev);
       final v = a[3];
       switch (a[2]) {
         case 'emuAuto':
+          if (!((!dm && !s.clean) || (lp && mp == BuildState.pickEmu))) return 'nocontrol';
           s.setMainAuto(v as bool);
         case 'emuClock':
+          if (s.clockOff()) return 'disabled';
           s.setMainClock(v as bool);
         case 'emuSess':
           s.setMainSess(v as bool);
         case 'emuNfc':
+          if (dev != '4u' && dev != '4u-plain') return 'nocontrol';
           s.setMainNfc(v as bool);
         case 'emuPack':
+          if (!(tamaDev || dev == 't7' || dev == 't18')) return 'nocontrol';
           await s.setEmuPack(v as bool);
         case 'optVol':
-          s.setMainOpt(vol: v as int);
         case 'optDim':
-          s.setMainOpt(dim: optU[v as int]);
         case 'optScr':
-          s.setMainOpt(off: v as int);
+          if (dev == 't7' || dev == 'v1' || dev.isEmpty) return 'nocontrol';
+          if (a[2] == 'optVol') {
+            s.setMainOpt(vol: v as int);
+          } else if (a[2] == 'optDim') {
+            s.setMainOpt(dim: optU[v as int]);
+          } else {
+            s.setMainOpt(off: v as int);
+          }
         default:
           return 'nocontrol';
       }
@@ -632,25 +640,36 @@ Future<Object?> row(BuildState s, List a) async {
     s.addFigures([(a.length > 3 ? a[3] as String : 'fig.bin', syn(a[2] as String))], i);
   } else if (what == 'check' || what == 'sel') {
     if ((x.kind == 'wolf' || x.kind == 'doom') && !xMain) return 'nodetail';
-    final v = a[3];
+    s.openExtra(i);
+    final v = a[3], k = x.kind;
     switch (a[2]) {
       case 'emuAuto':
         if (!xMain) return 'nocontrol';
         s.setMainAuto(v as bool);
       case 'emuClock':
+        if ((k == 'v1' && !E.v1Clock(x.rom!)) || const ['gb', 'sms', 'pm', 'ab', 'wolf', 'doom'].contains(k)) return 'nocontrol';
+        if (s.clockOff()) return 'disabled';
         s.setExtra(i, clock: v as bool);
       case 'emuSess':
+        if (!SESS_KINDS.contains(E.extraKind(x))) return 'nocontrol';
         s.setExtra(i, sess: v as bool);
       case 'emuNfc':
+        if (!(k == 'tama' && (x.dev == '4u' || x.dev == '4u-plain'))) return 'nocontrol';
         s.setExtra(i, nfc: v as bool);
       case 'emuPack':
+        if (k != 'tama') return 'nocontrol';
         s.setExtra(i, pack: v as bool);
       case 'optVol':
-        s.setExtra(i, vol: v as int);
       case 'optDim':
-        s.setExtra(i, dim: optU[v as int]);
       case 'optScr':
-        s.setExtra(i, off: v as int);
+        if (k != 'tama' && k != 't18') return 'nocontrol';
+        if (a[2] == 'optVol') {
+          s.setExtra(i, vol: v as int);
+        } else if (a[2] == 'optDim') {
+          s.setExtra(i, dim: optU[v as int]);
+        } else {
+          s.setExtra(i, off: v as int);
+        }
       default:
         return 'nocontrol';
     }
@@ -697,7 +716,7 @@ Future<void> main(List<String> args) async {
   final feld = FeldEmbedded(stub: bin('feld/stub_feld_tpl.bin'), feld: bin('feld/feld.bin'), feldS: bin('feld/feld_s.bin'), feldc: bin('feld/feldc.bin'), feldcS: bin('feld/feldc_s.bin'));
   final doom = DoomEmbedded(app: bin('doom/doom_app.bin'), xip: bin('doom/doom_xip.bin'), appF: bin('doom/doomf_app.bin'), xipF: bin('doom/doomf_xip.bin'));
   assets = BuildAssets(emu: emu, feld: feld, six: bin('six/six.bin'), flash: bin('flash/flashapp.bin'), doom: doom, doomPort: FakeDoom());
-  assetsNoPort = BuildAssets(emu: emu, feld: feld, six: bin('six/six.bin'), flash: bin('flash/flashapp.bin'), doom: doom);
+  assetsNoPort = BuildAssets(emu: emu, feld: feld, six: bin('six/six.bin'), flash: bin('flash/flashapp.bin'), doom: doom, doomPort: null);
   final cases = jsonDecode(File('${Directory.current.path}/tool/paramix_check/compose_cases.json').readAsStringSync()) as List;
   final lines = <String>[];
   var k = 0;

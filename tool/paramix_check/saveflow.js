@@ -62,6 +62,13 @@ function device(flash, ed, clock) {
   d.info = { edition: ed, name: FL.EDITIONS[ed] || 'Edition ' + ed, wave: 0, maxBlock: 4096, jedec: 0, capacity: 0x1000000, flashError: 0 };
   st.d = d; return st;
 }
+// the rescue start on the toy as writeSectors looks for it (the block from the toy's own table and the page at 0xFFF000);
+// null when 0xFF0000 is in use
+function rescueOn(fl, guard) {
+  for (let i = 0xFF0000; i < 0x1000000; i++) if (fl[i] !== 0xFF) return null;
+  const rb = FL.rescueBlock(guard, fl.subarray(0, 0x1000), fl.slice(0xFFF000, 0x1000000)); if (!rb) return null;
+  fl.set(rb, 0xFF0000); return fl;
+}
 const logStr = (l) => l.length + ':' + sha(l.map(hex).join(','));
 const em = (e) => 'err:' + (e && e.message || e);
 async function T(name, fn) { try { await fn(); } catch (e) { P(name, em(e)); } }
@@ -249,7 +256,7 @@ async function slotClear(d, ss, rom, i, guard) {
         await T(name + '.devSaveWrite.' + tag, async () => {
           const fl = new Uint8Array(rom);
           let on = 'none';
-          if (guard) { const w = FL.withRescue(fl, guard); on = w ? 'on' : 'busy'; if (w) fl.set(w); }
+          if (guard) on = rescueOn(fl, guard) ? 'on' : 'busy';
           const d2 = device(fl, ed, { counter: 9, ctrl: 0xE0 });
           let s2 = sv;
           if (tag.startsWith('backup')) { const bo = petOpen(SV.paraDecode(bk.file), rom, ed); s2 = SV.paraPetSet(bo.save, ed, { level: lv, care: true }); }
@@ -265,7 +272,7 @@ async function slotClear(d, ss, rom, i, guard) {
       for (const [tag, guard] of [['cancel', null], ['cancel.guard', GUARD]]) {
         await T(name + '.devSaveWrite.' + tag, async () => {
           const fl = new Uint8Array(rom);
-          if (guard) { const w = FL.withRescue(fl, guard); if (w) fl.set(w); }
+          if (guard) rescueOn(fl, guard);
           const d2 = device(fl, ed, { counter: 9, ctrl: 0xE0 }), c = saveCheck(edited, d2.d);
           const need = guard ? 2 : 1;
           let r; try { r = JSON.stringify(await saveWrite(d2.d, edited, c.chk, guard, () => d2.log.length >= need)); } catch (e) { r = em(e) + ' ' + e.code; }

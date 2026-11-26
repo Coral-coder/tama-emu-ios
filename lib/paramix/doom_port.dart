@@ -1,7 +1,8 @@
-// DOOM for the build pipeline: the parts of Paramix Studio's src/doom.js (mameise, GPL-3.0-or-later)
-// that only move bytes (the program into the ROM, the key layout), and the interface for the parts
-// that are not ported: the WAD conversion (wadSub, gbaExtras and convert, which runs the WebAssembly
-// module doom/mcuwad.wasm).
+// DOOM for the build pipeline (compose_full.dart, build_state.dart): the key layout as the page's state
+// keeps it (a map, as the JS object), DOOM into the ROM, and DoomPort, the WAD conversion the pipeline
+// calls (wadEpisodes, wadMerge, wadSub, gbaExtras, convert of Paramix Studio's src/doom.js, mameise,
+// GPL-3.0-or-later). DoomDartPort is the port of doom.js in doom.dart; another one (the Studio's
+// WebAssembly module, a test double) can stand in.
 //
 // Names as in doom.js.
 
@@ -10,6 +11,7 @@
 import 'dart:typed_data';
 
 import 'bytes.dart';
+import 'doom.dart' as doom;
 
 const int CODE_OFF = 0xB1000, SAVE_OFF = 0x10E000, SAVE_END = 0x110000;
 const int WAD_OFF = 0x830000, REGION_OFF = 0xCA0000, REGION_END = 0xD48000;
@@ -41,6 +43,21 @@ abstract class DoomPort {
 
   /// doom.js `convert(sub, extras, wasm)`: the converter (WebAssembly in the Studio).
   Future<Uint8List> convert(Uint8List sub, Uint8List extras);
+}
+
+/// [DoomPort] with the port of doom.js (doom.dart): the conversion runs in Dart.
+class DoomDartPort implements DoomPort {
+  const DoomDartPort();
+  @override
+  List<String> wadEpisodes(Uint8List wad) => doom.wadEpisodes(wad);
+  @override
+  Uint8List wadMerge(Uint8List base, List<({Uint8List data, bool slot})> pw) => doom.wadMerge(base, [for (final p in pw) doom.Pwad(p.data, slot: p.slot)]);
+  @override
+  Uint8List wadSub(Uint8List src, String eps, bool music, [Set<String>? only]) => doom.wadSub(src, eps, music, only);
+  @override
+  Uint8List gbaExtras(Uint8List wad) => doom.gbaExtras(wad);
+  @override
+  Future<Uint8List> convert(Uint8List sub, Uint8List extras) async => doom.convert(sub, extras);
 }
 
 /// The functions of emu.js that doom.js calls on its `E` argument.
