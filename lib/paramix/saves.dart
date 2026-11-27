@@ -254,7 +254,11 @@ ParaCheck paraCheck(ParaSave save, int edition) {
   final so = setOf(pages, edition), set = so?.p;
   if (set == null) {
     errors.add(const SaveNote('saveNoSettings'));
-  } else if ((u16(set, 12) == 0x016D) != (family(edition) == 'gen3' || family(edition) == 'neon')) {
+  } else if (save.edition == 0 && (u16(set, 12) == 0x016D) != (family(edition) == 'gen3' || family(edition) == 'neon')) {
+    // Not as in the Studio, which checks this word on every save: a save that names its edition
+    // (read from a toy or a ROM by this app) was already matched by family above, and a real
+    // Neon Planets was seen with another value here, so its own save was refused on itself.
+    // The word only decides for a save of unknown origin.
     errors.add(const SaveNote('saveFamily'));
   }
   var complete = true;
