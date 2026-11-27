@@ -229,6 +229,7 @@ class Dongle extends ChangeNotifier {
       updateProgress = null;
       updateNote = null;
       await NativeBridge.keepScreenOn(false);
+      await NativeBridge.keepAlive(false);
       notifyListeners();
     }
   }

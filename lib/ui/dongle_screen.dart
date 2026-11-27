@@ -104,6 +104,33 @@ class _DongleScreenState extends State<DongleScreen> {
             style: TextStyle(fontSize: 12, color: Colors.white54)),
       ]);
 
+  Future<void> _update(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final fw = await d.latestFirmware();
+    if (!context.mounted) return;
+    if (fw == null) {
+      messenger.showSnackBar(const SnackBar(content: Text('No firmware found for this board (or no network).')));
+      return;
+    }
+    final same = fw.version == d.firmware;
+    final yes = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text(same ? 'Firmware ${fw.version} is on the bridge' : 'Firmware ${fw.version} is ready'),
+        content: Text('${same ? 'The newest build is ${fw.version} (build ${fw.build}); you can send it again. ' : 'The bridge has ${d.firmware}. '}'
+            '${(fw.size / 1024).round()} KB over Bluetooth, a few minutes. Keep the bridge powered and the phone near; '
+            'if it stops, the bridge keeps its old firmware.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Later')),
+          FilledButton(onPressed: () => Navigator.pop(c, true), child: Text(same ? 'Send again' : 'Update')),
+        ],
+      ),
+    );
+    if (yes != true) return;
+    final err = await d.update(fw);
+    messenger.showSnackBar(SnackBar(content: Text(err ?? 'Done. The bridge restarts with firmware ${fw.version}: connect to it again.')));
+  }
+
   Widget _settings(BuildContext context) {
     final s = d.state;
     final w = Map<String, dynamic>.from(s['wifi'] as Map? ?? {});
@@ -121,6 +148,27 @@ class _DongleScreenState extends State<DongleScreen> {
           subtitle: Text('${s['mac'] ?? ''}\nToy line: RX GPIO ${pins['rx'] ?? '?'}, TX GPIO ${pins['tx'] ?? '?'}'),
           isThreeLine: true,
         ),
+      ),
+      Card(
+        child: d.updateNote != null
+            ? ListTile(
+                leading: const Icon(Icons.system_update_alt),
+                title: Text(d.updateNote!),
+                subtitle: Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: LinearProgressIndicator(value: d.updateProgress == 0 ? null : d.updateProgress),
+                ),
+                trailing: d.updateProgress == null ? null : Text('${(d.updateProgress! * 100).round()} %'),
+              )
+            : ListTile(
+                leading: const Icon(Icons.system_update_alt),
+                title: const Text('Update the firmware'),
+                subtitle: Text(d.canUpdate
+                    ? 'Over Bluetooth, from here. Takes a few minutes.'
+                    : 'This firmware cannot take updates over Bluetooth yet: flash 2.2 or later once over USB (the web flasher), from then on it updates here.'),
+                enabled: d.canUpdate,
+                onTap: () => _update(context),
+              ),
       ),
       const SizedBox(height: 8),
       FilledButton.icon(
