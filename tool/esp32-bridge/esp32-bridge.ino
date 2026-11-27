@@ -20,13 +20,14 @@
 #include <Preferences.h>
 #include <Update.h>
 #include <WiFi.h>
+#include <driver/gpio.h>
 #include <esp_sleep.h>
 #if defined(BOARD_HELTEC_V3) || defined(BOARD_HELTEC_V4) || defined(BOARD_TLORA_V161)
 #include <SSD1306Wire.h>
 #include <Wire.h>
 #endif
 
-#define FW_VERSION "2.2"
+#define FW_VERSION "2.3"
 
 #if defined(BOARD_HELTEC_V3) || defined(BOARD_HELTEC_V4)
 // Heltec WiFi LoRa 32 V3 / V4 (ESP32-S3 with a 0.96" screen): toy line on header pins 47 / 48
@@ -572,6 +573,8 @@ void setup() {
   loadSettings();
   Toy.setRxBufferSize(8192);
   Toy.begin(S.baud, SERIAL_8N1, PIN_RX, PIN_TX);
+  // an idle UART line is high: without this an open or loose RX wire reads as a stream of noise
+  gpio_pullup_en((gpio_num_t)PIN_RX);
 
   BLEDevice::init(S.name.c_str());
   BLEDevice::setMTU(247);
