@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'saves_screen.dart';
 import 'memory_screen.dart';
 import 'device_screen.dart';
 import 'package:share_plus/share_plus.dart';
@@ -335,6 +336,8 @@ class _ParadiseViewState extends State<ParadiseView> {
                 case 'memory':
                   await Navigator.of(context).push(MaterialPageRoute<void>(
                       builder: (_) => MemoryScreen(machine: m, gameKey: app.focused ?? m.title)));
+                case 'fromtoy':
+                  await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const SavesScreen()));
                 case 'totoy':
                   await _toToy(context);
                 case 'stop':
@@ -356,6 +359,7 @@ class _ParadiseViewState extends State<ParadiseView> {
               if (app.link != null) const PopupMenuItem(value: 'unlink', child: Text('Unlink')),
               if (WatchLink.instance.available) const PopupMenuItem(value: 'watch', child: Text('Send to Apple Watch now')),
               const PopupMenuItem(value: 'memory', child: ListTile(leading: Icon(Icons.memory), title: Text('Memory: look, change, find, hold'))),
+              const PopupMenuItem(value: 'fromtoy', child: ListTile(leading: Icon(Icons.download), title: Text('Get the save from my real toy'))),
               const PopupMenuItem(value: 'totoy', child: ListTile(leading: Icon(Icons.upload), title: Text('Put this save on my real toy'))),
               const PopupMenuItem(value: 'stop', child: Text('Back to the games (it lives on)')),
               const PopupMenuItem(value: 'quit', child: Text('Stop this game')),

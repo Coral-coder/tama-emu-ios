@@ -560,6 +560,48 @@ class _SavesScreenState extends State<SavesScreen> {
     await SharePlus.instance.share(ShareParams(files: [XFile(f.path)], subject: name));
   }
 
+  /// The save goes into a game of the app (that game's own save is kept under Backups first),
+  /// and the game starts on it.
+  Future<void> _toGame() async {
+    final c = _cur;
+    if (c == null || !await _pending()) return;
+    final e = await _pickRom('Play this save in which game?', hint: 'The game\'s save in the app is replaced (it is kept under Backups first).');
+    if (e == null) return;
+    await _task('Putting the save into ${e.name}', () async {
+      final rom = await lib.bytes(e);
+      final id = sf.romEdition(rom), check = sf.devSaveCheck(c.save, id, editionNames[id] ?? 'this ROM');
+      if (check.error != null) throw sf.SaveFlowError('devErr', check.error!.replaceFirst('the device is', 'the game is'));
+      if (!mounted) return;
+      final yes = await _confirm(
+        'Play this save on the phone?',
+        '${e.name} in the app continues with this save: ${_summary(c)}. The save it has now is kept under Backups.'
+            '${check.warn.isEmpty ? '' : '\n\nNote: ${check.warn.replaceAll('as on the device', 'as in the game')}.'}',
+        'Play it',
+      );
+      if (!yes) return;
+      if (app.games.containsKey(e.id)) await app.stopGame(e.id);
+      final file = lib.paradiseSave(e);
+      if (await file.exists() && await file.length() > 0) {
+        try {
+          final old = sf.gameSave(rom, await file.readAsBytes());
+          await _store.add(paraWrite(old, old.edition), title: 'Before the toy\'s save', source: 'the game ${e.name} in the app', edition: old.edition);
+        } catch (_) {
+          // an unreadable old save is not worth stopping for
+        }
+      }
+      await file.parent.create(recursive: true);
+      await file.writeAsBytes(paraWrite(c.save, id), flush: true);
+      await _reloadBackups();
+      final err = await app.playParadise(e);
+      if (!mounted) return;
+      if (err != null) {
+        _say('The game did not start: $err');
+        return;
+      }
+      Navigator.of(context).popUntil((r) => r.isFirst);
+    });
+  }
+
   Future<void> _toRom() async {
     final c = _cur;
     if (c == null || !await _pending()) return;
@@ -829,6 +871,11 @@ class _SavesScreenState extends State<SavesScreen> {
             child: Column(children: [
               ListTile(leading: const Icon(Icons.inventory_2_outlined), title: const Text('Keep as a backup in the app'), onTap: _busy ? null : _keep),
               ListTile(leading: const Icon(Icons.ios_share), title: const Text('Share as a .tamasave file'), onTap: _busy ? null : _share),
+              ListTile(
+                  leading: const Icon(Icons.play_arrow_rounded),
+                  title: const Text('Play it on my phone'),
+                  subtitle: const Text('A game in the app continues with this save.'),
+                  onTap: _busy ? null : _toGame),
               ListTile(leading: const Icon(Icons.memory), title: const Text('Put it into a ROM of my library'), subtitle: const Text('Makes a new copy of the ROM with this save.'), onTap: _busy ? null : _toRom),
               ListTile(leading: const Icon(Icons.upload), title: const Text('Write it to my toy'), subtitle: const Text('Replaces the game on the toy. Asks first.'), onTap: _busy ? null : _toToy),
             ]),
