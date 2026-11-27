@@ -12,7 +12,9 @@ import 'package:tama_tools/paramix/flash.dart';
 String hexs(List<int> b) => b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
 
 void main() {
-  final app = File('assets/paramix/flashapp.bin');
+  // the Studio's own flash app: the reference values were made with it (the app ships its build
+  // with the restart command, tool/flashapp)
+  final app = File('third_party/paramix-studio/flash/flashapp.bin');
 
   test('link key', () {
     expect(hexs(linkKey), '5350715245517174756876674a75526578714d664738467a737441676d6e6637');

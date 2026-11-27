@@ -23,6 +23,10 @@ const int firstUser = 0x111000;
 const int cmdHello = 1, cmdRead = 5, cmdCrc = 6, cmdWriteTest = 8, cmdWriteBegin = 9, cmdWriteData = 10;
 const int cmdWriteCommit = 11, cmdWriteFinish = 12, cmdWriteState = 13, cmdClockRead = 14, cmdClockSet = 15;
 
+/// Not in the Studio's flash app: the Tama app's build of it (tool/flashapp) restarts the toy
+/// into its own firmware on this, as the reset button does.
+const int cmdRestart = 16;
+
 // Link values of the Paradise (chunk key, download token and mask), as in Paramix (two mixed tables).
 const List<int> _lvA = [3, 175, 246, 44, 204, 25, 45, 199, 29, 242, 14, 63, 238, 148, 219, 113, 91, 21, 50, 246, 127, 248];
 const List<int> _lvB = [11, 238, 128, 40, 225, 137, 250, 116, 146, 111, 247, 251, 126, 100, 255, 4, 18, 238, 64, 95, 162, 62];
@@ -463,6 +467,17 @@ class Paradise {
     try {
       final r = await link.request(cmdClockSet, 0, le32(v), 2500);
       return r.payload.length == 4 && r.status == 0 && (u32(r.payload, 0) - v) < 5;
+    } on FlashTimeout {
+      return false;
+    }
+  }
+
+  /// Leaves the flash screen: the toy restarts into its game, without its reset button. False
+  /// when the flash app on the toy does not know the command (an older one).
+  Future<bool> restart() async {
+    try {
+      final r = await link.request(cmdRestart, 0, null, 2000);
+      return r.status == 0;
     } on FlashTimeout {
       return false;
     }

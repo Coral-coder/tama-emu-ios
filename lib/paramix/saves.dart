@@ -254,10 +254,11 @@ ParaCheck paraCheck(ParaSave save, int edition) {
   final so = setOf(pages, edition), set = so?.p;
   if (set == null) {
     errors.add(const SaveNote('saveNoSettings'));
-  } else if (!(family(edition) == 'neon' && save.edition != 0) && (u16(set, 12) == 0x016D) != (family(edition) == 'gen3' || family(edition) == 'neon')) {
-    // Not as in the Studio, which checks this word on every save: a save that says it is from
-    // Neon Planets was already matched by family above, and a real Neon Planets refused its own
-    // save on this word. There it only decides for a save that does not name its edition.
+  } else if (!(save.edition != 0 && (family(edition) == 'gen3' || family(edition) == 'neon')) && (u16(set, 12) == 0x016D) != (family(edition) == 'gen3' || family(edition) == 'neon')) {
+    // Not as in the Studio, which checks this word on every save. The word is the low half of
+    // the day the game counts its date from (365 = 2026-01-01, where the newer editions start):
+    // a toy whose origin is another day had its own save refused. A save that names its edition
+    // was already matched by family above; the word only decides for one that does not.
     errors.add(const SaveNote('saveFamily'));
   }
   var complete = true;

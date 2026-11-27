@@ -8,6 +8,7 @@ import 'package:material_ui/material_ui.dart';
 import '../emu/rom_info.dart';
 import '../paramix/edition.dart';
 import '../paramix/flash.dart';
+import '../paramix/save_flow.dart' as sf;
 import '../services/app_state.dart';
 import '../services/rom_library.dart';
 import '../services/serial/serial_hub.dart';
@@ -33,6 +34,7 @@ class _DeviceScreenState extends State<DeviceScreen> {
   List<UsbAdapter> _usb = [];
   FlashLink? _link;
   Paradise? _dev;
+  bool _restartAfter = true;
   bool _busy = false;
   String _phase = '';
   double? _progress;
@@ -218,8 +220,23 @@ class _DeviceScreenState extends State<DeviceScreen> {
       for (final n in r.notes) {
         _say('  $n');
       }
+      if (_restartAfter) await _leave(dev);
     });
   }
+
+  /// The toy leaves the flash screen and starts its game (no reset button).
+  Future<void> _leave(Paradise dev) async {
+    final ok = await dev.restart();
+    _say(ok ? '✓ The toy restarts into its game' : 'The toy did not restart by itself: press its reset button');
+    if (ok && mounted) setState(() => _dev = null);
+  }
+
+  Future<void> _clockNow({bool leave = false}) => _task('Setting the toy\'s clock', () async {
+        final dev = _dev!;
+        final err = await sf.devClockNow(dev);
+        _say(err ?? '✓ The toy\'s clock is set to the phone\'s time');
+        if (leave) await _leave(dev);
+      });
 
   @override
   Widget build(BuildContext context) {
@@ -279,6 +296,11 @@ class _DeviceScreenState extends State<DeviceScreen> {
                 OutlinedButton.icon(onPressed: _busy ? null : _read, icon: const Icon(Icons.download), label: const Text('Read the device (backup to the library)')),
                 const SizedBox(height: 8),
                 OutlinedButton.icon(onPressed: _busy ? null : _write, icon: const Icon(Icons.upload), label: Text(_withSave ? 'Write my game with its save to the toy' : 'Write a ROM to the device …')),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(onPressed: _busy ? null : () => _clockNow(leave: true), icon: const Icon(Icons.schedule), label: const Text('Set the clock and start the game')),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(onPressed: _busy ? null : () => _task('Restarting the toy', () => _leave(_dev!)), icon: const Icon(Icons.restart_alt), label: const Text('Leave the flash screen (start the game)')),
+                SwitchListTile(dense: true, title: const Text('Start the game when a write is done'), value: _restartAfter, onChanged: (v) => setState(() => _restartAfter = v)),
                 SwitchListTile(dense: true, title: const Text('Only changes'), value: _onlyChanged, onChanged: (v) => setState(() => _onlyChanged = v)),
                 SwitchListTile(dense: true, title: const Text('Keep the saves on the device'), value: _keepSaves, onChanged: (v) => setState(() => _keepSaves = v)),
                 SwitchListTile(

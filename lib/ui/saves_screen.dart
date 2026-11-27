@@ -702,8 +702,31 @@ class _SavesScreenState extends State<SavesScreen> {
         _say('Cancelled after ${w.written} of ${w.planned} pages. The save on the toy is now mixed: write this save again (or your backup) before you use the toy.', bad: true);
       } else {
         _say('${w.written == 0 ? 'The toy already holds this save, nothing had to be written.' : 'Done: ${w.written} pages written and checked.'} '
-            '${w.clock ? 'The clock was taken over.' : 'Please set the clock on the toy.'} Switch the toy off and on to play.');
+            '${w.clock ? 'The clock was taken over.' : 'Please set the clock on the toy.'}');
+        await _leaveToy();
       }
+    });
+  }
+
+  /// The toy leaves the flash screen and starts its game (no reset button).
+  Future<void> _leaveToy() async {
+    final dev = _dev;
+    if (dev == null) return;
+    final ok = await dev.restart();
+    if (ok) {
+      _dev = null;
+      _say('${_note ?? ''} The toy restarts into its game.'.trim());
+    } else {
+      _say('${_note ?? ''} Press the toy\'s reset button to play.'.trim());
+    }
+  }
+
+  Future<void> _clockNow() async {
+    if (!await _connect() || !mounted) return;
+    await _task('Setting the toy\'s clock', device: true, () async {
+      final err = await sf.devClockNow(_dev!);
+      _say(err ?? 'The toy\'s clock is set to the phone\'s time.', bad: err != null);
+      await _leaveToy();
     });
   }
 
@@ -783,6 +806,19 @@ class _SavesScreenState extends State<SavesScreen> {
                       : 'Dongle ready (${t.label}). Put the toy on its download screen.'),
               onTap: _busy ? null : _fromToy,
             ),
+            ListTile(
+              leading: const Icon(Icons.schedule),
+              title: const Text('Set my toy\'s clock and start its game'),
+              subtitle: const Text('The phone\'s time goes onto the toy, then it leaves the flash screen by itself.'),
+              onTap: _busy ? null : _clockNow,
+            ),
+            if (_dev != null)
+              ListTile(
+                leading: const Icon(Icons.restart_alt),
+                title: const Text('Leave the flash screen'),
+                subtitle: const Text('The toy starts its game, without its reset button.'),
+                onTap: _busy ? null : () => _task('Restarting the toy', device: true, _leaveToy),
+              ),
             if (t == null)
               for (final a in _usb) ListTile(dense: true, leading: const Icon(Icons.cable), title: Text(a.name), trailing: const Icon(Icons.link), onTap: _busy ? null : () => _openUsb(a)),
             ListTile(leading: const Icon(Icons.memory), title: const Text('From a ROM in my library'), subtitle: const Text('The game inside a ROM, for example one read from a toy.'), onTap: _busy ? null : _fromRom),

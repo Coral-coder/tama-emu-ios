@@ -380,6 +380,27 @@ Future<DeviceWritten> devSaveWrite(SaveDevice d, ParaSave save, ParaCheck chk, {
   return DeviceWritten(w, map.length, cl, t('devSaveDone', {'w': w, 'c': cl ? t('devSaveClock') : t('devSaveClockNo')}));
 }
 
+/// Sets the toy's clock to [now] (the phone's local time). The game counts its date from an
+/// origin in its settings block (days since 2025-01-01 at +12, seconds of the day at +16) plus
+/// the seconds counter of the clock chip, so the counter is set to the time since that origin.
+/// Null when it worked, else why not.
+Future<String?> devClockNow(Paradise dev, {DateTime? now}) async {
+  final ed = dev.info!.edition;
+  final pages = <int, Uint8List>{};
+  for (final a in setAddrs(ed)) {
+    pages[a] = await dev.read(a, 0x1000);
+  }
+  final set = setOf(pages, ed)?.p;
+  if (set == null) return 'The toy has no game yet: start it once and set its clock there.';
+  final days = u32(set, 12), sec = u32(set, 16);
+  if (days > 40000 || sec >= 86400) return 'The toy keeps its date in a way this app does not know.';
+  final n = now ?? DateTime.now();
+  final local = DateTime.utc(n.year, n.month, n.day, n.hour, n.minute, n.second).difference(DateTime.utc(2025)).inSeconds;
+  final counter = local - (days * 86400 + sec);
+  if (counter < 0 || counter > 0xFFFFFFFF) return 'The date on the toy lies after today: set it on the toy once.';
+  return await dev.clockSet(counter) ? null : 'The toy did not take the time (its clock is not running: set it on the toy once).';
+}
+
 // ------------------------------------------------------------------ slots of the menu
 /// One line of the Studio's "Slot" list (renderSave, app.js:3239-3240).
 class SlotChoice {

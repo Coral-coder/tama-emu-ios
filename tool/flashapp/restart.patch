@@ -1,0 +1,19 @@
+--- /home/user/tama-emu-ios/third_party/paramix-studio/flash/src/fw.c	2026-11-22 18:25:32.003722424 +0000
++++ src/fw.c	2026-11-27 21:54:14.018227364 +0000
+@@ -613,6 +613,16 @@
+     u8* p=reply_head(15,seq,off,ok?0:1,4); wr32(p, REG(0x45000304u));
+     send_frame(28+4); return;
+   }
++  if(type==16){ /* RESTART (Tama app): answer, then restart the device into its own firmware, as its
++                  reset button does. First the core's reset request; where that does nothing the
++                  watchdog is switched on and no longer fed. */
++    u8* p=reply_head(16,seq,off,0,0); send_frame(28+0);
++    MS(60);                                  /* the answer leaves the UART first */
++    *(volatile u32*)0xE000ED0Cu=0x05FA0004u; /* AIRCR: SYSRESETREQ */
++    MS(200);
++    REG(0x40008000u)=0x5AFA0001u;            /* watchdog on */
++    for(;;){}
++  }
+   if(type==3){ /* CANCEL */
+     u8* p=reply_head(3,seq,off,0,0); send_frame(28+0); return;
+   }
