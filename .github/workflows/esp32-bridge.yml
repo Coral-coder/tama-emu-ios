@@ -21,21 +21,21 @@ jobs:
       matrix:
         include:
           - chip: esp32
-            fqbn: esp32:esp32:esp32:PartitionScheme=huge_app
+            fqbn: esp32:esp32:esp32:PartitionScheme=min_spiffs
           - chip: esp32c3
-            fqbn: esp32:esp32:esp32c3:CDCOnBoot=cdc,PartitionScheme=huge_app
+            fqbn: esp32:esp32:esp32c3:CDCOnBoot=cdc,PartitionScheme=min_spiffs
           - chip: esp32s3
-            fqbn: esp32:esp32:esp32s3:CDCOnBoot=cdc,PartitionScheme=huge_app
+            fqbn: esp32:esp32:esp32s3:CDCOnBoot=cdc,PartitionScheme=min_spiffs
           - chip: esp32c6
-            fqbn: esp32:esp32:esp32c6:CDCOnBoot=cdc,PartitionScheme=huge_app
+            fqbn: esp32:esp32:esp32c6:CDCOnBoot=cdc,PartitionScheme=min_spiffs
           - chip: heltec-v3
-            fqbn: esp32:esp32:esp32s3:PartitionScheme=huge_app
+            fqbn: esp32:esp32:esp32s3:PartitionScheme=min_spiffs
             flags: -DBOARD_HELTEC_V3
           - chip: heltec-v4
-            fqbn: esp32:esp32:esp32s3:PartitionScheme=huge_app
+            fqbn: esp32:esp32:esp32s3:PartitionScheme=min_spiffs
             flags: -DBOARD_HELTEC_V4
           - chip: tlora-v161
-            fqbn: esp32:esp32:esp32:PartitionScheme=huge_app
+            fqbn: esp32:esp32:esp32:PartitionScheme=min_spiffs
             flags: -DBOARD_TLORA_V161
     steps:
       - uses: actions/checkout@v4
@@ -53,10 +53,13 @@ jobs:
           arduino-cli compile --fqbn '${{ matrix.fqbn }}' --build-property 'compiler.cpp.extra_flags=${{ matrix.flags }}' --export-binaries --output-dir out tool/esp32-bridge
           ls -l out
           cp out/esp32-bridge.ino.merged.bin tama-bridge-${{ matrix.chip }}.bin
+          # the program alone: what the app sends for an update over Bluetooth
+          cp out/esp32-bridge.ino.bin tama-bridge-${{ matrix.chip }}-ota.bin
+          ls -l tama-bridge-*.bin
       - uses: actions/upload-artifact@v4
         with:
           name: fw-${{ matrix.chip }}
-          path: tama-bridge-${{ matrix.chip }}.bin
+          path: tama-bridge-${{ matrix.chip }}*.bin
 
   release:
     needs: build
@@ -75,7 +78,7 @@ jobs:
           unzip -q esptool.zip -d esptool-x
           exe=$(find esptool-x -iname esptool.exe | head -1)
           cp -r "$(dirname "$exe")"/. pkg/esptool/
-          cp fw/*.bin pkg/
+          cp fw/*.bin pkg/ && rm -f pkg/*-ota.bin
           cp tool/esp32-bridge/windows/flash.bat tool/esp32-bridge/windows/flash.ps1 pkg/
           cp tool/esp32-bridge/README.md pkg/README.md
           (cd pkg && zip -qr ../Tama-Bridge-Windows-flasher.zip .)

@@ -18,13 +18,15 @@
 #include <BLEUtils.h>
 #include <ESPmDNS.h>
 #include <Preferences.h>
+#include <Update.h>
 #include <WiFi.h>
+#include <esp_sleep.h>
 #if defined(BOARD_HELTEC_V3) || defined(BOARD_HELTEC_V4) || defined(BOARD_TLORA_V161)
 #include <SSD1306Wire.h>
 #include <Wire.h>
 #endif
 
-#define FW_VERSION "2.1"
+#define FW_VERSION "2.2"
 
 #if defined(BOARD_HELTEC_V3) || defined(BOARD_HELTEC_V4)
 // Heltec WiFi LoRa 32 V3 / V4 (ESP32-S3 with a 0.96" screen): toy line on header pins 47 / 48
@@ -41,6 +43,7 @@ static const char *CHIP = "Heltec V3";
 #define SCREEN_RST 21
 #define SCREEN_POWER 36  // Vext: LOW powers the screen
 #define BOARD_LED 35
+#define BOARD_BUTTON 0  // the PRG button: a click turns the screen's pages, held it switches the bridge off
 #elif defined(BOARD_TLORA_V161)
 // LilyGO T-LoRa (T3) V1.6.1, ESP32 with a 0.96" screen (LilyGO's schematic T3_V1.6.1): toy line
 // on the right header JP2, RX = IO34 (pin 10), TX = IO4 (pin 2); GND on JP1 pin 2 or 4. The LoRa
@@ -85,6 +88,15 @@ HardwareSerial Toy(1);
 #define NUS_TX "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"  // notified to the app (or a peer bridge)
 #define CFG_SERVICE "7A3E0001-6B5C-4C1D-9C2A-5D1E8F7A0001"
 #define CFG_CHAR "7A3E0002-6B5C-4C1D-9C2A-5D1E8F7A0001"  // JSON lines both ways
+#define OTA_CHAR "7A3E0003-6B5C-4C1D-9C2A-5D1E8F7A0001"  // the new firmware's bytes (update from the app)
+
+// ---- update over Bluetooth ---------------------------------------------------------------------
+// The app sends {"ota":{"size":n,"md5":"..."}} on the settings line, then the firmware image in
+// writes to OTA_CHAR (each one answered, so nothing is lost), then {"otaEnd":true}. The image goes
+// into the second program slot; only a complete image with the right MD5 is started.
+volatile bool otaOn = false;
+volatile uint32_t otaGot = 0, otaSize = 0;
+volatile bool otaFailed = false;
 
 // ---- settings (kept on the board) -------------------------------------------------------------
 struct Settings {
@@ -152,6 +164,19 @@ class RxEvents : public BLECharacteristicCallbacks {
     String v = c->getValue();
     if (v.length()) Toy.write((const uint8_t *)v.c_str(), v.length());
     bytesOut += v.length();
+  }
+};
+
+class OtaEvents : public BLECharacteristicCallbacks {
+  void onWrite(BLECharacteristic *c) override {
+    if (!otaOn || otaFailed) return;
+    size_t n = c->getLength();
+    if (n == 0) return;
+    if (Update.write(c->getData(), n) != n) {
+      otaFailed = true;
+      return;
+    }
+    otaGot += n;
   }
 };
 
@@ -306,11 +331,101 @@ void screenStart() {
   screen.setFont(ArialMT_Plain_10);
 }
 
+#ifdef BOARD_BUTTON
+// The board's button: a click goes to the next page (status, about, switch off); held for two
+// seconds on any page the bridge switches off (deep sleep, screen and radios off). Only RST, or
+// plugging the power in again, starts it then.
+const uint32_t HOLD_MS = 2000;
+uint8_t page = 0;
+uint32_t buttonSince = 0;  // when the press began (0: not pressed)
+bool buttonHeld() { return buttonSince != 0 && millis() - buttonSince > 400; }
+
+void powerOff() {
+  screen.clear();
+  screen.setFont(ArialMT_Plain_16);
+  screen.drawString(0, 20, "Off");
+  screen.setFont(ArialMT_Plain_10);
+  screen.drawString(0, 44, "RST switches it on");
+  screen.display();
+  delay(1200);
+  screen.displayOff();
+#ifdef SCREEN_POWER
+  digitalWrite(SCREEN_POWER, HIGH);  // Vext off: the screen's supply
+#endif
+  digitalWrite(LED, LOW);
+  WiFi.mode(WIFI_OFF);
+  BLEDevice::deinit(true);
+  // wait for the button to come up, so the press that switched it off is over
+  while (digitalRead(BOARD_BUTTON) == LOW) delay(20);
+  esp_deep_sleep_start();  // no wake-up source: only a reset starts it again
+}
+
+void buttonPoll() {
+  bool down = digitalRead(BOARD_BUTTON) == LOW;
+  uint32_t now = millis();
+  if (down && buttonSince == 0) {
+    buttonSince = now ? now : 1;
+    screenAt = 0;
+  } else if (down && now - buttonSince >= HOLD_MS) {
+    powerOff();
+  } else if (!down && buttonSince != 0) {
+    if (now - buttonSince > 30 && now - buttonSince < 400) page = (page + 1) % 3;  // a click
+    buttonSince = 0;
+    screenAt = 0;
+  }
+  if (buttonHeld()) screenAt = min(screenAt, now + 60);  // the bar moves
+}
+#endif
+
 String wifiIp();
 void screenDraw() {
   if (millis() < screenAt) return;
   screenAt = millis() + 500;
   screen.clear();
+  if (otaOn) {
+    screen.setFont(ArialMT_Plain_16);
+    screen.drawString(0, 0, "Updating");
+    screen.drawString(0, 22, String(otaSize ? (uint32_t)((uint64_t)otaGot * 100 / otaSize) : 0) + " %");
+    screen.setFont(ArialMT_Plain_10);
+    screen.drawString(0, 50, "Keep it powered");
+    screen.display();
+    return;
+  }
+#ifdef BOARD_BUTTON
+  if (buttonHeld()) {
+    // held: a bar fills, then the bridge switches off
+    uint32_t ms = millis() - buttonSince;
+    screen.setFont(ArialMT_Plain_16);
+    screen.drawString(0, 0, "Switch off");
+    screen.setFont(ArialMT_Plain_10);
+    screen.drawString(0, 22, "Keep holding ...");
+    screen.drawRect(0, 40, 128, 12);
+    screen.fillRect(2, 42, (int)min((uint32_t)124, ms * 124 / HOLD_MS), 8);
+    screen.display();
+    return;
+  }
+  if (page == 1) {
+    screen.setFont(ArialMT_Plain_16);
+    screen.drawString(0, 0, "About");
+    screen.setFont(ArialMT_Plain_10);
+    screen.drawString(0, 18, String(CHIP) + "  firmware " + FW_VERSION);
+    screen.drawString(0, 29, BLEDevice::getAddress().toString().c_str());
+    screen.drawString(0, 40, String("Toy pins: RX ") + PIN_RX + "  TX " + PIN_TX);
+    screen.drawString(0, 51, String("Up ") + (millis() / 60000) + " min");
+    screen.display();
+    return;
+  }
+  if (page == 2) {
+    screen.setFont(ArialMT_Plain_16);
+    screen.drawString(0, 0, "Switch off");
+    screen.setFont(ArialMT_Plain_10);
+    screen.drawString(0, 20, "Hold the button 2 s:");
+    screen.drawString(0, 31, "the bridge switches off.");
+    screen.drawString(0, 46, "RST switches it on again.");
+    screen.display();
+    return;
+  }
+#endif
   screen.setFont(ArialMT_Plain_16);
   screen.drawString(0, 0, S.name);
   screen.setFont(ArialMT_Plain_10);
@@ -328,6 +443,7 @@ void sendState() {
   JsonDocument doc;
   doc["v"] = FW_VERSION;
   doc["chip"] = CHIP;
+  doc["ota"] = true;  // can be updated from the app
   doc["mac"] = BLEDevice::getAddress().toString().c_str();
   doc["name"] = S.name;
   doc["baud"] = S.baud;
@@ -351,6 +467,49 @@ void handleCfg(const String &line) {
   if (deserializeJson(in, line)) return;
   if (in["scan"].is<bool>()) {
     scanPeers();
+    return;
+  }
+  if (in["ota"].is<JsonObject>()) {
+    JsonDocument out;
+    uint32_t size = in["ota"]["size"] | 0;
+    const char *md5 = in["ota"]["md5"] | "";
+    if (otaOn) Update.abort();
+    otaOn = false;
+    otaFailed = false;
+    otaGot = 0;
+    otaSize = size;
+    if (size == 0 || !Update.begin(size)) {
+      out["ota"] = "error";
+      out["msg"] = size == 0 ? "no size" : Update.errorString();
+    } else {
+      if (strlen(md5) == 32) Update.setMD5(md5);
+      otaOn = true;
+      out["ota"] = "ready";
+    }
+    sendCfg(out);
+    return;
+  }
+  if (in["otaEnd"].is<bool>()) {
+    JsonDocument out;
+    bool ok = otaOn && !otaFailed && otaGot == otaSize && Update.end(true);
+    out["ota"] = ok ? "done" : "error";
+    out["got"] = (uint32_t)otaGot;
+    if (!ok) {
+      out["msg"] = otaFailed ? Update.errorString() : (otaGot != otaSize ? "incomplete" : Update.errorString());
+      Update.abort();
+    }
+    otaOn = false;
+    sendCfg(out);
+    if (ok) {
+      delay(800);
+      ESP.restart();
+    }
+    return;
+  }
+  if (in["otaAbort"].is<bool>()) {
+    if (otaOn) Update.abort();
+    otaOn = false;
+    sendState();
     return;
   }
   if (in["restart"].is<bool>()) {
@@ -428,6 +587,8 @@ void setup() {
   cfgChar = cfg->createCharacteristic(CFG_CHAR, BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR | BLECharacteristic::PROPERTY_NOTIFY);
   cfgChar->addDescriptor(new BLE2902());
   cfgChar->setCallbacks(new CfgEvents());
+  BLECharacteristic *ota = cfg->createCharacteristic(OTA_CHAR, BLECharacteristic::PROPERTY_WRITE);
+  ota->setCallbacks(new OtaEvents());
   cfg->start();
   BLEAdvertising *adv = BLEDevice::getAdvertising();
   adv->addServiceUUID(NUS_SERVICE);
@@ -435,6 +596,9 @@ void setup() {
   BLEDevice::startAdvertising();
 
   startWifi();
+#ifdef BOARD_BUTTON
+  pinMode(BOARD_BUTTON, INPUT_PULLUP);
+#endif
 #ifdef HAS_SCREEN
   screenStart();
 #endif
@@ -442,9 +606,20 @@ void setup() {
 }
 
 void loop() {
+#ifdef BOARD_BUTTON
+  if (!otaOn) buttonPoll();
+#endif
   if (cfgPending) {
     cfgPending = false;
     handleCfg(cfgLine);
+  }
+  if (otaOn) {
+    // an update is coming in: nothing else runs, the screen shows how far it is
+#ifdef HAS_SCREEN
+    screenDraw();
+#endif
+    delay(5);
+    return;
   }
   peerTry();
   if (server.hasClient()) {
