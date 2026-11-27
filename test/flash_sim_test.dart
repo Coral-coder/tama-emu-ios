@@ -12,6 +12,7 @@ import 'package:tama_tools/paramix/feld.dart' as feld;
 import 'package:tama_tools/paramix/flash.dart';
 import 'package:tama_tools/paramix/save_flow.dart' as sf;
 import 'package:tama_tools/paramix/saves.dart';
+import 'package:tama_tools/paramix/virtual_toy.dart';
 
 /// The device side of PAU1, as Paramix's flash app (flash/src/fw.c) answers.
 class FakeFlashApp {
@@ -161,6 +162,41 @@ void main() {
   });
 
   saveFlowTests();
+
+  test('a game of the app in the toy\'s place: read its save, write one, the game file follows', () async {
+    // the ROM as it came, and a game that changed its settings and one more page
+    final rom = landImage(), played = landToy();
+    final file0 = gameFileOf(rom, played, null, 1234, 1);
+    final (img, old) = gameImage(rom, file0);
+    expect(img, played);
+    expect(old!.counter, 1234);
+
+    var left = false;
+    final toy = VirtualToy(img, counter: old.counter, onRestart: () => left = true);
+    final link = FlashLink(toy.toHost, toy.fromHost);
+    final (dev, _) = await connectParadise(link, Uint8List(16), null);
+    expect(dev.info!.name, 'Land');
+    final d = sf.ParadiseSaveDevice(dev);
+    final bk = await sf.devSaveRead(d);
+    expect(paraPet(bk.save, 1)!.level, 2);
+    expect(toy.changed, isFalse);
+
+    final edited = sf.petApply(sf.petOpen(bk.save, 1), sf.PetChange(level: 7));
+    final w = await sf.devSaveWrite(d, edited, sf.devSaveCheck(edited, 1, 'Land').chk);
+    expect(w.written, greaterThan(0));
+    expect(toy.changed, isTrue);
+    expect(await dev.restart(), isTrue);
+    await Future<void>.delayed(Duration.zero);
+    expect(left, isTrue);
+
+    // the game's file now holds the written save, and nothing of the ROM itself
+    final file1 = gameFileOf(rom, toy.flash, old, toy.counter, 1);
+    final g = sf.gameSave(rom, file1);
+    expect(paraPet(g, 1)!.level, 7);
+    expect(paraDecode(file1).pages.keys.every((a) => a >= region(1)[0]), isTrue);
+    link.dispose();
+    toy.dispose();
+  });
 }
 
 // ---------------------------------------------------------------- the save flow (save_flow.dart)

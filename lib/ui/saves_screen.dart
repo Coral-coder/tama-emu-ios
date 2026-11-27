@@ -13,6 +13,7 @@ import '../emu/rom_info.dart';
 import '../paramix/edition.dart' show editionNames;
 import '../paramix/flash.dart';
 import '../paramix/save_flow.dart' as sf;
+import '../paramix/virtual_toy.dart';
 import '../paramix/saves.dart';
 import '../paramix/sprites.dart' show Rgba;
 import '../services/app_state.dart';
@@ -76,6 +77,12 @@ class _SavesScreenState extends State<SavesScreen> {
   FlashLink? _link;
   Paradise? _dev;
   Uint8List? _flashApp;
+
+  // or a game of the app in the toy's place
+  VirtualToy? _virt;
+  RomEntry? _virtEntry;
+  Uint8List? _virtRom;
+  ParaSave? _virtOld;
   Timer? _usbPoll;
 
   bool _busy = false, _cancel = false, _canCancel = false;
@@ -99,12 +106,14 @@ class _SavesScreenState extends State<SavesScreen> {
   void dispose() {
     _usbPoll?.cancel();
     hub.removeListener(_hubChanged);
+    unawaited(_virtStore());
     _link?.dispose();
+    _virt?.dispose();
     super.dispose();
   }
 
   void _hubChanged() {
-    if (!hub.connected && _dev != null) {
+    if (!hub.connected && _dev != null && _virt == null) {
       _link?.dispose();
       _link = null;
       _dev = null;
@@ -185,6 +194,7 @@ class _SavesScreenState extends State<SavesScreen> {
     } catch (e) {
       _say(_why(e), bad: true);
     } finally {
+      await _virtStore();
       if (device) {
         await NativeBridge.keepScreenOn(false);
         if (!(app.backgroundRun && (app.games.isNotEmpty || app.machine != null))) await NativeBridge.keepAlive(false);
@@ -268,6 +278,71 @@ class _SavesScreenState extends State<SavesScreen> {
     _level = _cur?.pet.pet.level ?? 0;
     _char = null;
     _care = false;
+  }
+
+  /// A game of the app takes the toy's place: everything "my toy" does then works on it.
+  Future<void> _useGame() async {
+    final e = await _pickRom('Which game stands in for the toy?', hint: 'It is stopped while it is the toy. Reading and writing its save and clock then work as on a real one.');
+    if (e == null) return;
+    await _task('Putting ${e.name} in the toy\'s place', () async {
+      await _virtDrop();
+      app.games[e.id]?.save();
+      if (app.games.containsKey(e.id)) await app.stopGame(e.id);
+      final rom = await lib.bytes(e), file = lib.paradiseSave(e);
+      final (img, old) = gameImage(rom, await file.exists() && await file.length() > 0 ? await file.readAsBytes() : null);
+      final toy = VirtualToy(img, counter: old?.counter ?? 0);
+      _flashApp ??= (await rootBundle.load('assets/paramix/flashapp.bin')).buffer.asUint8List();
+      _link?.dispose();
+      final link = FlashLink(toy.toHost, toy.fromHost);
+      final (dev, _) = await connectParadise(link, _flashApp!, _prog);
+      toy.onRestart = () => unawaited(_virtStore(leave: true));
+      _link = link;
+      _virt = toy;
+      _virtEntry = e;
+      _virtRom = rom;
+      _virtOld = old;
+      _dev = dev;
+      _say('${e.name} is the toy now (Paradise ${dev.info!.name}).');
+    });
+  }
+
+  /// What was written to the stand-in goes into the game's save.
+  Future<void> _virtStore({bool leave = false}) async {
+    final toy = _virt, e = _virtEntry, rom = _virtRom;
+    if (toy == null || e == null || rom == null) return;
+    if (toy.changed) {
+      toy.changed = false;
+      final file = lib.paradiseSave(e);
+      await file.parent.create(recursive: true);
+      await file.writeAsBytes(gameFileOf(rom, toy.flash, _virtOld, toy.counter, sf.romEdition(toy.flash)), flush: true);
+    }
+    if (leave) {
+      await _virtDrop();
+      if (mounted) setState(() {});
+    }
+  }
+
+  Future<void> _virtDrop() async {
+    if (_virt == null) return;
+    final toy = _virt!;
+    _virt = null;
+    await _virtStoreOf(toy);
+    _link?.dispose();
+    _link = null;
+    _dev = null;
+    toy.dispose();
+    _virtEntry = null;
+    _virtRom = null;
+    _virtOld = null;
+  }
+
+  Future<void> _virtStoreOf(VirtualToy toy) async {
+    final e = _virtEntry, rom = _virtRom;
+    if (e == null || rom == null || !toy.changed) return;
+    toy.changed = false;
+    final file = lib.paradiseSave(e);
+    await file.parent.create(recursive: true);
+    await file.writeAsBytes(gameFileOf(rom, toy.flash, _virtOld, toy.counter, sf.romEdition(toy.flash)), flush: true);
   }
 
   Future<bool> _connect() async {
@@ -799,12 +874,30 @@ class _SavesScreenState extends State<SavesScreen> {
             ListTile(
               leading: Icon(Icons.usb_rounded, color: _dev != null ? Colors.greenAccent : null),
               title: const Text('From my toy'),
-              subtitle: Text(_dev != null
+              subtitle: Text(_virt != null
+                  ? 'The game ${_virtEntry!.name} stands in for the toy (Paradise ${_dev!.info!.name}).'
+                  : _dev != null
                   ? 'Connected: Paradise ${_dev!.info!.name}. Backs up its save with the clock.'
                   : t == null
                       ? (UsbTransport.supported ? 'Plug the dongle in, wire it to the toy and put the toy on its download screen.' : 'Connect the dongle on the connections page (top right) first.')
                       : 'Dongle ready (${t.label}). Put the toy on its download screen.'),
               onTap: _busy ? null : _fromToy,
+            ),
+            ListTile(
+              leading: Icon(Icons.videogame_asset_rounded, color: _virt != null ? Colors.greenAccent : null),
+              title: Text(_virt != null ? 'Back to the real toy' : 'Use a game in the app as my toy'),
+              subtitle: Text(_virt != null
+                  ? 'The game keeps what was written to it.'
+                  : 'No dongle needed: a game here is read and written exactly like a toy on its download screen.'),
+              onTap: _busy
+                  ? null
+                  : _virt != null
+                      ? () => _task('Putting the game back', () async {
+                            final name = _virtEntry!.name;
+                            await _virtDrop();
+                            _say('$name is a game again, with what was written to it.');
+                          })
+                      : _useGame,
             ),
             ListTile(
               leading: const Icon(Icons.schedule),
