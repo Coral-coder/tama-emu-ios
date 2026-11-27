@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
@@ -53,7 +54,7 @@ class _Mark {
 }
 
 class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderStateMixin {
-  late final TabController _tabs = TabController(length: 3, vsync: this);
+  late final TabController _tabs = TabController(length: 4, vsync: this);
   Timer? _tick;
   int _region = 0;
   int _top = 0; // first address shown (offset in the region)
@@ -84,6 +85,8 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
   @override
   void dispose() {
     _tick?.cancel();
+    _mapPic?.dispose();
+    _gamePic?.dispose();
     _tabs.dispose();
     _value.dispose();
     super.dispose();
@@ -110,6 +113,7 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
     if (h == null || !mounted) return;
     _before = _view;
     _view = h.memRead(_region, _top, 16 * _rows);
+    _mapRefresh();
     setState(() {});
   }
 
@@ -231,6 +235,289 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
     if (r == 'hold' && mark != null) _hold(mark, v);
     await _save();
     if (mounted) setState(() {});
+  }
+
+  // ---- the map: memory as a picture, one square a byte ----
+
+  /// What the map can show: (name, region, first byte, length).
+  List<(String, int, int, int)> get _mapAreas {
+    final h = _h;
+    if (h == null) return const [];
+    final neon = h.memSize(1) > 0xD85004 && ByteData.sublistView(h.memRead(1, 0xD85000, 4)).getUint32(0, Endian.little) < 0x100;
+    return [
+      ('Work RAM', 0, 0, h.memSize(0)),
+      if (neon) ('Save: settings', 1, 0xD85000, 0x6000) else ('Save: settings', 1, 0xEFE000, 0x2000),
+      ('Save: game data', 1, 0x1000, 0x10000),
+      ('Program RAM', 2, 0, h.memSize(2)),
+    ];
+  }
+
+  int _mapArea = 0;
+  int? _mapSel; // offset in the area
+  Uint8List _mapNow = Uint8List(0);
+  Uint8List _mapHeat = Uint8List(0);
+  ui.Image? _mapPic, _gamePic;
+  bool _mapBusy = false;
+  int _mapSeenFrame = -1;
+  final _mapZoom = TransformationController();
+  static const _mapCols = 256;
+
+  /// The fields of the pet this app knows, as (offset in work RAM, bytes, name, highest value).
+  List<(int, int, String, int)> get _known {
+    final h = _h;
+    final pet = h?.pet();
+    if (h == null || pet == null) return const [];
+    final block = pet.block >= 0x18000000 ? pet.block - 0x18000000 : pet.block;
+    final (rec, level) = h.petPlaces();
+    final neon = _mapAreas.length > 1 && _mapAreas[1].$3 == 0xD85000;
+    final r = block + rec;
+    return [
+      (r + 4, 2, 'Pet: character', 0xFFFF),
+      (r + 0x10, 1, 'Pet: sick', 1),
+      (r + 0x18, 1, 'Pet: life stage (bits 2 to 4)', 255),
+      (r + 0x1C, 1, 'Pet: hunger (0 to 6)', 6),
+      (r + 0x1D, 1, 'Pet: happiness (0 to 20)', 20),
+      (r + (neon ? 0x3D : 0x3C), 1, 'Pet: poops on the field', 8),
+      (block + level, 1, 'Planet level (low half)', 255),
+      (block + 12, 4, 'Clock: day the date counts from', 0xFFFFFFFF),
+      (block + 16, 4, 'Clock: second of that day', 86399),
+    ];
+  }
+
+  (int, int, String, int)? _knownAt(int off) {
+    if (_mapAreas.isEmpty || _mapAreas[_mapArea].$2 != 0) return null;
+    for (final k in _known) {
+      if (off >= k.$1 && off < k.$1 + k.$2) return k;
+    }
+    return null;
+  }
+
+  void _mapRefresh() {
+    final h = _h;
+    if (h == null || _tabs.index != 0 || _mapBusy || _mapAreas.isEmpty) return;
+    final (_, region, start, len) = _mapAreas[_mapArea];
+    final now = h.memRead(region, start, len);
+    if (_mapHeat.length != now.length) _mapHeat = Uint8List(now.length);
+    final old = _mapNow.length == now.length ? _mapNow : now;
+    final rows = (now.length + _mapCols - 1) ~/ _mapCols;
+    final px = Uint8List(_mapCols * rows * 4);
+    final known = region == 0 ? _known : const <(int, int, String, int)>[];
+    for (var i = 0; i < now.length; i++) {
+      final v = now[i];
+      var heat = _mapHeat[i];
+      if (v != old[i]) {
+        heat = 255;
+      } else if (heat > 0) {
+        heat = heat > 24 ? heat - 24 : 0;
+      }
+      _mapHeat[i] = heat;
+      // quiet bytes: dark blue to pale by value; a byte that just changed glows orange and fades
+      final o = i * 4;
+      final r = 10 + (v * 70 >> 8), g = 14 + (v * 150 >> 8), b = 30 + (v * 200 >> 8);
+      px[o] = r + ((255 - r) * heat >> 8);
+      px[o + 1] = g + ((150 - g) * heat >> 8);
+      px[o + 2] = b + ((20 - b) * heat >> 8);
+      px[o + 3] = 255;
+    }
+    // the places with a name are marked green
+    for (final k in known) {
+      for (var i = k.$1; i < k.$1 + k.$2 && i < now.length; i++) {
+        px[i * 4] = 60;
+        px[i * 4 + 1] = 255;
+        px[i * 4 + 2] = 120;
+      }
+    }
+    for (final m in _marks) {
+      final i = m.addr - start;
+      if (m.region == region && i >= 0 && i < now.length) {
+        px[i * 4] = 255;
+        px[i * 4 + 1] = 80;
+        px[i * 4 + 2] = 255;
+      }
+    }
+    _mapNow = now;
+    _mapBusy = true;
+    ui.decodeImageFromPixels(px, _mapCols, rows, ui.PixelFormat.rgba8888, (img) {
+      _mapBusy = false;
+      if (!mounted) {
+        img.dispose();
+        return;
+      }
+      setState(() {
+        _mapPic?.dispose();
+        _mapPic = img;
+      });
+    });
+    // the game's screen next to it
+    final m = widget.machine;
+    if (m.frame != _mapSeenFrame) {
+      _mapSeenFrame = m.frame;
+      final g = Uint8List(128 * 128 * 4);
+      for (var i = 0; i < 128 * 128; i++) {
+        final p = m.screen[i];
+        g[i * 4] = ((p >> 11) & 31) * 255 ~/ 31;
+        g[i * 4 + 1] = ((p >> 5) & 63) * 255 ~/ 63;
+        g[i * 4 + 2] = (p & 31) * 255 ~/ 31;
+        g[i * 4 + 3] = 255;
+      }
+      ui.decodeImageFromPixels(g, 128, 128, ui.PixelFormat.rgba8888, (img) {
+        if (!mounted) {
+          img.dispose();
+          return;
+        }
+        setState(() {
+          _gamePic?.dispose();
+          _gamePic = img;
+        });
+      });
+    }
+  }
+
+  void _mapStep(int off, int by) {
+    final (_, region, start, _) = _mapAreas[_mapArea];
+    final k = _knownAt(off);
+    final at = k?.$1 ?? off, size = k == null ? _Size.u8 : (k.$2 == 1 ? _Size.u8 : (k.$2 == 2 ? _Size.u16 : _Size.u32));
+    final max = k?.$4 ?? 255;
+    final v = (_read(region, start + at, size) + by).clamp(0, max);
+    _write(region, start + at, v, size);
+  }
+
+  Widget _mapKey(String label, int pin) => Listener(
+        onPointerDown: (_) => widget.machine.press(pin),
+        onPointerUp: (_) => widget.machine.release(pin),
+        onPointerCancel: (_) => widget.machine.release(pin),
+        child: Container(
+          width: 44,
+          height: 36,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(color: Colors.white12, borderRadius: BorderRadius.circular(8)),
+          child: Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
+        ),
+      );
+
+  Widget _mapView() {
+    final areas = _mapAreas;
+    if (areas.isEmpty) return const Center(child: Text('The game is not running.'));
+    final (_, region, start, len) = areas[_mapArea];
+    final base = _regions[region].base + start;
+    final sel = _mapSel != null && _mapSel! < len ? _mapSel : null;
+    final k = sel == null ? null : _knownAt(sel);
+    final rows = (len + _mapCols - 1) ~/ _mapCols;
+    const mono = TextStyle(fontFamily: 'Menlo', fontFamilyFallback: ['monospace'], fontSize: 12);
+    return Column(children: [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Column(children: [
+            Container(
+              width: 128,
+              height: 128,
+              color: Colors.black,
+              child: _gamePic == null ? null : RawImage(image: _gamePic, filterQuality: FilterQuality.none, fit: BoxFit.fill),
+            ),
+            const SizedBox(height: 6),
+            Row(children: [
+              _mapKey('A', ParadiseHandle.pinA),
+              const SizedBox(width: 4),
+              _mapKey('B', ParadiseHandle.pinB),
+              const SizedBox(width: 4),
+              _mapKey('C', ParadiseHandle.pinC),
+            ]),
+          ]),
+          const SizedBox(width: 12),
+          Expanded(
+            child: sel == null
+                ? const Text(
+                    'Every square is one byte: darker is a small value, paler a large one. A byte glows orange the moment the game '
+                    'changes it. Green: places this app knows. Pink: places you kept.\n\nPlay with A B C and watch what lights up, '
+                    'then tap a square to read and change it. Two fingers zoom.',
+                    style: TextStyle(fontSize: 12, color: Colors.white70))
+                : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(k?.$3 ?? 'Byte', style: const TextStyle(fontWeight: FontWeight.w700)),
+                    Text('0x${_hex(base + (k?.$1 ?? sel), 8)}', style: mono),
+                    const SizedBox(height: 4),
+                    Text(
+                        k != null
+                            ? '${_read(region, start + k.$1, k.$2 == 1 ? _Size.u8 : (k.$2 == 2 ? _Size.u16 : _Size.u32))}'
+                            : '${_mapNow.length > sel ? _mapNow[sel] : 0}   0x${_hex(_mapNow.length > sel ? _mapNow[sel] : 0, 2)}'
+                                '   16-bit ${_read(region, start + sel, _Size.u16)}',
+                        style: const TextStyle(fontSize: 18)),
+                    const SizedBox(height: 4),
+                    Wrap(spacing: 6, runSpacing: 4, children: [
+                      IconButton.filledTonal(visualDensity: VisualDensity.compact, icon: const Icon(Icons.remove), onPressed: () => _mapStep(sel, -1)),
+                      IconButton.filledTonal(visualDensity: VisualDensity.compact, icon: const Icon(Icons.add), onPressed: () => _mapStep(sel, 1)),
+                      OutlinedButton(
+                        onPressed: () => _edit(region, start + (k?.$1 ?? sel),
+                            size: k == null || k.$2 == 1 ? _Size.u8 : (k.$2 == 2 ? _Size.u16 : _Size.u32), title: k?.$3),
+                        child: const Text('Set, hold, name'),
+                      ),
+                      TextButton(
+                        onPressed: () {
+                          _show(region, (start + sel) & ~15);
+                          _tabs.animateTo(1);
+                        },
+                        child: const Text('As numbers'),
+                      ),
+                    ]),
+                  ]),
+          ),
+        ]),
+      ),
+      SizedBox(
+        height: 40,
+        child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 12), children: [
+          for (var i = 0; i < areas.length; i++)
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: ChoiceChip(
+                label: Text(areas[i].$1),
+                selected: _mapArea == i,
+                onSelected: (_) => setState(() {
+                  _mapArea = i;
+                  _mapSel = null;
+                  _mapNow = Uint8List(0);
+                  _mapZoom.value = Matrix4.identity();
+                  _mapRefresh();
+                }),
+              ),
+            ),
+          if (region == 0)
+            for (final f in _known)
+              Padding(
+                padding: const EdgeInsets.only(right: 6),
+                child: ActionChip(label: Text(f.$3.replaceFirst('Pet: ', '')), onPressed: () => setState(() => _mapSel = f.$1)),
+              ),
+        ]),
+      ),
+      Expanded(
+        child: LayoutBuilder(builder: (context, box) {
+          final cell = box.maxWidth / _mapCols;
+          return ClipRect(
+            child: InteractiveViewer(
+              transformationController: _mapZoom,
+              minScale: 1,
+              maxScale: 40,
+              constrained: false,
+              child: GestureDetector(
+                onTapUp: (d) {
+                  final x = (d.localPosition.dx / cell).floor().clamp(0, _mapCols - 1), y = (d.localPosition.dy / cell).floor();
+                  final off = y * _mapCols + x;
+                  if (off >= 0 && off < len) setState(() => _mapSel = off);
+                },
+                child: SizedBox(
+                  width: box.maxWidth,
+                  height: rows * cell,
+                  child: CustomPaint(
+                    foregroundPainter: _MapMark(sel, cell, _mapCols),
+                    child: _mapPic == null ? null : RawImage(image: _mapPic, filterQuality: FilterQuality.none, fit: BoxFit.fill),
+                  ),
+                ),
+              ),
+            ),
+          );
+        }),
+      ),
+    ]);
   }
 
   // ---- search (work RAM) ----
@@ -469,9 +756,38 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
             },
           ),
         ],
-        bottom: TabBar(controller: _tabs, tabs: const [Tab(text: 'Memory'), Tab(text: 'Find'), Tab(text: 'Saved')]),
+        bottom: TabBar(controller: _tabs, tabs: const [Tab(text: 'Map'), Tab(text: 'Memory'), Tab(text: 'Find'), Tab(text: 'Saved')]),
       ),
-      body: TabBarView(controller: _tabs, children: [_hexView(), _searchView(), _savedView()]),
+      body: TabBarView(controller: _tabs, physics: const NeverScrollableScrollPhysics(), children: [_mapView(), _hexView(), _searchView(), _savedView()]),
     );
   }
+}
+
+/// The chosen byte on the map: a frame around it and hair lines to find it when zoomed out.
+class _MapMark extends CustomPainter {
+  _MapMark(this.sel, this.cell, this.cols);
+  final int? sel;
+  final double cell;
+  final int cols;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final s = sel;
+    if (s == null) return;
+    final x = (s % cols) * cell, y = (s ~/ cols) * cell;
+    final line = Paint()
+      ..color = Colors.white38
+      ..strokeWidth = cell / 6;
+    canvas.drawLine(Offset(0, y + cell / 2), Offset(size.width, y + cell / 2), line);
+    canvas.drawLine(Offset(x + cell / 2, 0), Offset(x + cell / 2, size.height), line);
+    canvas.drawRect(
+        Rect.fromLTWH(x - cell / 2, y - cell / 2, cell * 2, cell * 2),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..color = Colors.white
+          ..strokeWidth = cell / 3);
+  }
+
+  @override
+  bool shouldRepaint(_MapMark old) => old.sel != sel || old.cell != cell;
 }
