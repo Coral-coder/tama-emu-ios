@@ -1,0 +1,6 @@
+{
+	"items": [
+		{"name": "Tama", "priority": 1, "action": "bin/tama.sh", "params": "start", "exitmenu": true},
+		{"name": "Tama: stop", "priority": 2, "action": "bin/tama.sh", "params": "stop", "exitmenu": true}
+	]
+}

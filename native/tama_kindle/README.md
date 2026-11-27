@@ -29,3 +29,10 @@ another device key, `TAMA_FPS=<n>` another limit of screen refreshes per second 
 
 Without a Kindle: `TAMA_FAKE=out.pgm TAMA_SECONDS=20 tama_kindle dump.bin` runs the game on a
 screen in memory and writes the picture at the end.
+
+## KUAL
+
+`kual/tama` is a KUAL extension: copy it to `extensions/tama` on the Kindle with the built
+`tama_kindle` in its `bin` folder, and your dump as a `.bin` file into the folder `tama` next
+to `extensions`. KUAL then shows "Tama" (starts the game; the cross on the screen ends it) and
+"Tama: stop". What the program prints goes to `tama/tama.log`.
