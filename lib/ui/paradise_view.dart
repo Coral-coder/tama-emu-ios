@@ -405,7 +405,7 @@ class _ParadiseViewState extends State<ParadiseView> {
                       child: LayoutBuilder(
                         builder: (context, cc) {
                           final dial = (cc.maxHeight - 24).clamp(120.0, (cc.maxWidth * 0.42).clamp(120.0, 240.0));
-                          final key = ((cc.maxWidth - dial - 18) / 2.4).clamp(52.0, 84.0).clamp(0.0, (cc.maxHeight - 8) / 2.05);
+                          final key = ((cc.maxWidth - dial - 18) / 2.4).clamp(40.0, 84.0).clamp(0.0, (cc.maxHeight - 8) / 2.05);
                           return Row(
                             crossAxisAlignment: CrossAxisAlignment.center,
                             children: [
@@ -447,11 +447,17 @@ class _ParadiseViewState extends State<ParadiseView> {
                                     },
                                   ),
                                   const SizedBox(height: 6),
-                                  Text(
+                                  SizedBox(
+                                    width: dial,
+                                    child: Text(
                                     app.link != null
                                         ? app.link!.status
                                         : m.error ?? (m.typing ? 'Typing … ${(m.typingProgress * 100).round()} %' : (m.running ? '${(m.load * 100).round()} % speed' : 'Paused')),
+                                    textAlign: TextAlign.center,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
                                     style: TextStyle(color: m.error != null ? Colors.redAccent : th.onShell.withValues(alpha: 0.6), fontSize: 11),
+                                  ),
                                   ),
                                 ],
                               ),

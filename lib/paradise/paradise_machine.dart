@@ -164,7 +164,9 @@ class ParadiseMachine extends ChangeNotifier {
       }
     }
     final want = _due.floor();
-    final done = (want > 0 ? h.run(want, _bg ? 30 : 12) : 0).clamp(0, want > 0 ? want : 0);
+    // what the core ran beyond what was asked (it finishes its slice) is owed by the next ticks:
+    // dropping it made an awake console run ahead of the clock
+    final done = want > 0 ? h.run(want, _bg ? 30 : 12) : 0;
     _due -= done;
     if (dt > 0) load = load * 0.9 + 0.1 * (done / (cps * speed * dt)).clamp(0, 1);
     // in the background the screen is still read, once a second: the game cards show it live

@@ -197,7 +197,7 @@ pub unsafe extern "C" fn tama_run(t: *mut Tama, cycles: u64, budget_ms: u32) -> 
             continue;
         }
         let avant = t.m.cpu.cycles;
-        if !t.tranche() {
+        if !t.tranche(avant + (cycles - done)) {
             break;
         }
         let apres = t.m.cpu.cycles;
@@ -322,14 +322,16 @@ impl Tama {
     /// One slice of the console, instruction by instruction (what Capybara's run_frame does),
     /// except that a read of the TE pin skips the time until the pin changes. False when the
     /// core stopped.
-    fn tranche(&mut self) -> bool {
+    fn tranche(&mut self, jusqu: u64) -> bool {
         if !self.m.is_running {
             return false;
         }
         self.chercher_lecture();
         let lecture = self.lecture_broche.unwrap_or(u32::MAX);
         let mut left = self.m.instructions_per_frame;
-        while left > 0 {
+        // (a slice ends at the cycles asked for: skipped screen waits make a slice of
+        // instructions worth many milliseconds, and the caller paces real time)
+        while left > 0 && self.m.cpu.cycles < jusqu {
             if self.m.cpu.regs.pc == lecture && self.m.cpu.regs.get_reg(0) == Self::BROCHE_TE {
                 self.attendre_te();
             }
