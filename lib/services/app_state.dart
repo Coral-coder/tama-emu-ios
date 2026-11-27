@@ -217,7 +217,7 @@ class AppState extends ChangeNotifier {
         unawaited(() async {
           // the game's screen as it is right now goes with the call
           final pic = await _callPicture(m);
-          await NativeBridge.notify(name, why, image: pic);
+          await NativeBridge.notify(name, why, image: pic, game: e.id);
         }());
         if (watchCalls) WatchLink.instance.call(name, why);
       };
@@ -239,6 +239,18 @@ class AppState extends ChangeNotifier {
     if (backgroundRun) await NativeBridge.keepAlive(true, title: 'Tama', text: '${games.length == 1 ? e.name : '${games.length} Tamagotchis'} living');
     notifyListeners();
     return null;
+  }
+
+  /// Set by the shell: closes whatever page lies over the games.
+  VoidCallback? toRoot;
+
+  /// A tap on a game's notification: that game on screen, whatever page the app was on.
+  Future<void> openFromCall(String id) async {
+    final e = library.entries.where((r) => r.id == id).firstOrNull;
+    if (e == null) return;
+    toRoot?.call();
+    page.value = 0;
+    if (focused != id) await playParadise(e);
   }
 
   /// Puts a running game on screen; the others go on in the background (no drawing, once a

@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import 'services/app_state.dart';
+import 'services/native.dart';
 import 'services/updater.dart';
 import 'ui/play_screen.dart';
 import 'ui/theme.dart';
@@ -38,6 +39,7 @@ class TamaApp extends StatelessWidget {
         theme: buildTheme(app.currentTheme),
         darkTheme: buildTheme(app.currentTheme),
         themeMode: ThemeMode.dark,
+        navigatorKey: _nav,
         home: const Shell(),
       ),
     );
@@ -59,6 +61,10 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    final app = AppState.instance;
+    app.toRoot = () => _nav.currentState?.popUntil((r) => r.isFirst);
+    NativeBridge.onOpened = (g) => app.openFromCall(g);
+    NativeBridge.watchOpened();
     // Android: a newer release on GitHub is offered once the app is up
     if (Updater.instance.supported) {
       Future<void>.delayed(const Duration(seconds: 4), () {
@@ -82,6 +88,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
         app.onBackground();
       case AppLifecycleState.resumed:
         app.onForeground();
+        NativeBridge.takeOpened();
         // back after a while: look for an update again (at most every 6 hours)
         if (Updater.instance.supported && DateTime.now().difference(_lastCheck).inHours >= 6) {
           _lastCheck = DateTime.now();
@@ -119,3 +126,5 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
     );
   }
 }
+
+final GlobalKey<NavigatorState> _nav = GlobalKey<NavigatorState>();

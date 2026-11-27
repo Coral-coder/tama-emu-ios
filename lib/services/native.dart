@@ -54,10 +54,31 @@ class NativeBridge {
     }
   }
 
-  /// A notification; [image] is a picture file shown with it (the game's screen).
-  static Future<void> notify(String title, String body, {String? image}) async {
+  /// Called with a game's id when its notification was tapped.
+  static void Function(String game)? onOpened;
+
+  /// Listens for taps on notifications, and takes the one that started or woke the app.
+  static Future<void> watchOpened() async {
+    _ch.setMethodCallHandler((call) async {
+      if (call.method == 'opened' && call.arguments is String) onOpened?.call(call.arguments as String);
+    });
+    await takeOpened();
+  }
+
+  static Future<void> takeOpened() async {
     try {
-      await _ch.invokeMethod('notify', {'title': title, 'body': body, 'image': image});
+      final g = await _ch.invokeMethod<String>('takeOpened');
+      if (g != null && g.isNotEmpty) onOpened?.call(g);
+    } catch (e) {
+      debugPrint('takeOpened: $e');
+    }
+  }
+
+  /// A notification; [image] is a picture file shown with it (the game's screen).
+  /// [game] is the id of the game that calls: a tap on the notification opens that game.
+  static Future<void> notify(String title, String body, {String? image, String? game}) async {
+    try {
+      await _ch.invokeMethod('notify', {'title': title, 'body': body, 'image': image, 'game': game});
     } catch (e) {
       debugPrint('notify: $e');
     }

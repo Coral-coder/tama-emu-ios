@@ -8,12 +8,27 @@ import UserNotifications
   private let tone = TamaTone()
   private var usb: UsbDriverBridge?
   private var watch: WatchBridge?
+  private var channel: FlutterMethodChannel?
+  /// The game whose notification was tapped, until the app has taken it.
+  private var opened: String?
 
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
-    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    let r = super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    UNUserNotificationCenter.current().delegate = self
+    return r
+  }
+
+  /// A tap on a call: the app opens on the game that called.
+  override func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+                                       withCompletionHandler completionHandler: @escaping () -> Void) {
+    if let g = response.notification.request.content.userInfo["game"] as? String {
+      opened = g
+      channel?.invokeMethod("opened", arguments: g)
+    }
+    completionHandler()
   }
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
@@ -22,6 +37,7 @@ import UserNotifications
     usb = UsbDriverBridge(messenger: registrar.messenger())
     watch = WatchBridge(messenger: registrar.messenger())
     let channel = FlutterMethodChannel(name: "tama/native", binaryMessenger: registrar.messenger())
+    self.channel = channel
     channel.setMethodCallHandler { [weak self] call, result in
       guard let self = self else { return }
       let args = call.arguments as? [String: Any] ?? [:]
@@ -45,8 +61,12 @@ import UserNotifications
       case "askToNotify":
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
         result(nil)
+      case "takeOpened":
+        result(self.opened)
+        self.opened = nil
       case "notify":
         let c = UNMutableNotificationContent()
+        if let g = args["game"] as? String { c.userInfo = ["game": g] }
         c.title = args["title"] as? String ?? "Tama"
         c.body = args["body"] as? String ?? ""
         c.sound = .default

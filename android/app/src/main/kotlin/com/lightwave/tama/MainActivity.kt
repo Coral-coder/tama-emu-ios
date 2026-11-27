@@ -8,12 +8,34 @@ import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
     private var usb: UsbSerialBridge? = null
+    private var channel: MethodChannel? = null
+
+    /** The game whose notification was tapped, until the app has taken it. */
+    private var opened: String? = null
+
+    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        super.onCreate(savedInstanceState)
+        opened = intent?.getStringExtra("game")
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        intent.getStringExtra("game")?.let {
+            opened = it
+            channel?.invokeMethod("opened", it)
+        }
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         usb = UsbSerialBridge(applicationContext, flutterEngine.dartExecutor.binaryMessenger)
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "tama/native").setMethodCallHandler { call, result ->
+        channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "tama/native")
+        channel!!.setMethodCallHandler { call, result ->
             when (call.method) {
+                "takeOpened" -> {
+                    result.success(opened)
+                    opened = null
+                }
                 "tone" -> {
                     val freq = call.argument<Double>("freq") ?: 4096.0
                     val on = call.argument<Boolean>("on") ?: false
@@ -84,7 +106,10 @@ class MainActivity : FlutterActivity() {
                     if (Build.VERSION.SDK_INT >= 26) {
                         nm.createNotificationChannel(android.app.NotificationChannel("calls", "Your Tamagotchi calling", android.app.NotificationManager.IMPORTANCE_HIGH))
                     }
-                    val open = android.app.PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), android.app.PendingIntent.FLAG_IMMUTABLE)
+                    val game = call.argument<String>("game")
+                    val open = android.app.PendingIntent.getActivity(this, (game ?: "").hashCode(),
+                        Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP).putExtra("game", game),
+                        android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT)
                     // the game's screen as it was when the pet called
                     val screen = call.argument<String>("image")?.let { android.graphics.BitmapFactory.decodeFile(it) }
                     @Suppress("DEPRECATION")
