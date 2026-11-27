@@ -1,0 +1,21 @@
+[package]
+name = "tama_kindle"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+description = "Tamagotchi Paradise on a jailbroken Kindle: the Tama core on the e-ink framebuffer, keys on the touchscreen"
+publish = false
+
+[features]
+aot = ["tama_core/aot"]
+
+[dependencies]
+tama_core = { path = "../tama_core" }
+libc = "0.2"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+opt-level = 3
+strip = true
