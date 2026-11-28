@@ -202,7 +202,10 @@ class AppState extends ChangeNotifier {
     await ensureGameTheme(e);
     final running = games[e.id];
     if (running != null) {
-      if (focus) _focus(e.id);
+      if (focus) {
+        _focus(e.id);
+        if (running.width != running.height) unawaited(autoLink());
+      }
       return null;
     }
     final dump = await library.romFile(e);
@@ -235,6 +238,11 @@ class AppState extends ChangeNotifier {
     if (focus) {
       _focus(e.id);
       await prefs.setString('lastToy', e.id);
+      if (m.width == m.height) {
+        await prefs.setString('lastParadise', e.id);
+      } else {
+        unawaited(autoLink());
+      }
     }
     if (backgroundRun) await NativeBridge.keepAlive(true, title: 'Tama', text: '${games.length == 1 ? e.name : '${games.length} Tamagotchis'} living');
     notifyListeners();
@@ -369,6 +377,8 @@ class AppState extends ChangeNotifier {
     final a = paradise;
     if (core == null || a == null) return 'Start a game first.';
     await unlink();
+    // the partner is a console of its own on that game's save: not twice at the same time
+    if (e.id != focused && games.containsKey(e.id)) await stopGame(e.id);
     final dump = await library.romFile(e);
     final same = paradiseRom?.id == e.id;
     final save = same ? library.paradiseSave(e).path.replaceFirst('.save', '-partner.save') : library.paradiseSave(e).path;
@@ -385,6 +395,22 @@ class AppState extends ChangeNotifier {
     TwinLink(a, b);
     notifyListeners();
     return null;
+  }
+
+  /// My Lab is made to be linked: when it comes on screen it looks for something to talk to by
+  /// itself. A real unit on the dongle first; else the Paradise game played last.
+  Future<void> autoLink() async {
+    final m = paradise, rom = paradiseRom;
+    if (m == null || rom == null || m.width == m.height || link != null) return;
+    if (serial.connected) {
+      await linkUnit();
+      return;
+    }
+    final others = library.entries.where((r) => r.kind == RomKind.paradise && r.id != rom.id && !r.name.contains('My Lab')).toList();
+    if (others.isEmpty) return;
+    final last = prefs.getString('lastParadise');
+    final pick = others.where((r) => games.containsKey(r.id)).firstOrNull ?? others.where((r) => r.id == last).firstOrNull;
+    if (pick != null) await linkPartner(pick);
   }
 
   /// Links the game being played to a real unit on the serial connection.

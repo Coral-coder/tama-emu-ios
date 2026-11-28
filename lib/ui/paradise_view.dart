@@ -71,6 +71,7 @@ class _ParadiseViewState extends State<ParadiseView> {
   @override
   void dispose() {
     _later?.cancel();
+    _hintOff?.cancel();
     m.removeListener(_onFrame);
     NativeBridge.keepScreenOn(false);
     super.dispose();
@@ -196,6 +197,82 @@ class _ParadiseViewState extends State<ParadiseView> {
   Widget _mainScreen(AppState app) => _img == null
       ? const ColoredBox(color: Colors.black)
       : RawImage(image: _img, fit: m.width == m.height ? BoxFit.fill : BoxFit.contain, filterQuality: app.upscale == Upscale.smooth || app.upscale == Upscale.hq ? FilterQuality.medium : FilterQuality.none);
+
+  /// One of two consoles on the page with its keys on its own screen, unseen: the lower part is
+  /// A, B and C side by side; on the upper part a tap is the dial's button and a sideways drag
+  /// turns the dial. The letters show for a moment when the two come up.
+  Widget _console(ParadiseMachine c, Widget screen) {
+    Widget key(String label, int pin) => Expanded(
+          child: Listener(
+            behavior: HitTestBehavior.opaque,
+            onPointerDown: (_) {
+              HapticFeedback.lightImpact();
+              c.press(pin);
+            },
+            onPointerUp: (_) => c.release(pin),
+            onPointerCancel: (_) => c.release(pin),
+            child: Center(
+              child: AnimatedOpacity(
+                opacity: _hint ? 0.75 : 0,
+                duration: const Duration(milliseconds: 600),
+                child: Text(label, style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: Colors.white, shadows: [Shadow(blurRadius: 6)])),
+              ),
+            ),
+          ),
+        );
+    var drag = 0.0;
+    return Center(
+      child: AspectRatio(
+        aspectRatio: c.width / c.height,
+        child: Stack(fit: StackFit.expand, children: [
+          screen,
+          Column(children: [
+            Expanded(
+              flex: 3,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTapDown: (_) => c.press(ParadiseHandle.pinWheel),
+                onTapUp: (_) => c.release(ParadiseHandle.pinWheel),
+                onTapCancel: () => c.release(ParadiseHandle.pinWheel),
+                onHorizontalDragStart: (_) => drag = 0,
+                onHorizontalDragUpdate: (d) {
+                  drag += d.delta.dx;
+                  while (drag.abs() >= 26) {
+                    HapticFeedback.selectionClick();
+                    c.turn(drag > 0);
+                    drag -= drag > 0 ? 26 : -26;
+                  }
+                },
+                child: Center(
+                  child: AnimatedOpacity(
+                    opacity: _hint && c.width == c.height ? 0.75 : 0,
+                    duration: const Duration(milliseconds: 600),
+                    child: const Text('tap: dial button · drag: turn', style: TextStyle(color: Colors.white, shadows: [Shadow(blurRadius: 6)])),
+                  ),
+                ),
+              ),
+            ),
+            Expanded(
+              flex: 2,
+              child: Row(children: [key('A', ParadiseHandle.pinA), key('B', ParadiseHandle.pinB), key('C', ParadiseHandle.pinC)]),
+            ),
+          ]),
+        ]),
+      ),
+    );
+  }
+
+  bool _hint = false, _hadPartner = false;
+  Timer? _hintOff;
+
+  /// Shows where the unseen keys are for a moment.
+  void _showHint() {
+    _hintOff?.cancel();
+    setState(() => _hint = true);
+    _hintOff = Timer(const Duration(seconds: 4), () {
+      if (mounted) setState(() => _hint = false);
+    });
+  }
 
   /// One of the two linked consoles; touching it gives it the keys and the dial.
   Widget _pick(bool second, Widget screen) => GestureDetector(
@@ -378,6 +455,24 @@ class _ParadiseViewState extends State<ParadiseView> {
               const controls = 250.0;
               final side = c.maxWidth.clamp(0.0, (c.maxHeight - controls).clamp(160.0, c.maxHeight));
               final partner = app.partner;
+              // two consoles: each as large as it gets, with its own keys on its own screen
+              if (partner == null) _hadPartner = false;
+              if (partner != null) {
+                if (!_hadPartner) {
+                  _hadPartner = true;
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) _showHint();
+                  });
+                }
+                return Column(children: [
+                  Expanded(child: _console(m, _mainScreen(app))),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 2),
+                    child: Text(app.link?.status ?? '', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: th.onShell.withValues(alpha: 0.6), fontSize: 11)),
+                  ),
+                  Expanded(child: _console(partner, ParadiseScreen(machine: partner))),
+                ]);
+              }
               return Column(
                 children: [
                   if (partner != null)
