@@ -61,6 +61,11 @@ pub struct Tama {
     soins_auto: u32,
     soins_a: u64,
     boucle: (u32, u64, u32, u32), // a spin loop (pc, since, hits, frames): waiting for the watchdog
+    // a second program behind a boot loader (see `etage2`): (armed, writes of the engine's control
+    // register seen, blocks done, instructions since the last block)
+    etage2: (bool, u64, u32, u32),
+    /// The panel lies on its side (the boards with a second program): the screen is given turned.
+    couche: bool,
 }
 
 unsafe fn path_of(p: *const c_char) -> Option<PathBuf> {
@@ -94,6 +99,8 @@ pub extern "C" fn tama_new() -> *mut Tama {
         drapeau: 0,
         veille_depuis: None,
         boucle: (0, 0, 0, 0),
+        etage2: (false, 0, 0, 0),
+        couche: false,
         redemarrages: 0,
         veilles_sautees: 0,
         reveils: 0,
@@ -126,6 +133,7 @@ pub unsafe extern "C" fn tama_load(t: *mut Tama, dump: *const c_char, key: u32, 
             // The dumps were read with a weak battery flag set: without this the firmware shows its
             // battery message and switches off (as Capybara does on load).
             t.m.remplacer_la_pile();
+            t.armer_etage2();
             if r.bootable { 1 } else { 0 }
         }
         Err(_) => -1,
@@ -143,6 +151,7 @@ pub unsafe extern "C" fn tama_open_save(t: *mut Tama, path: *const c_char) -> i3
     let running = t.m.is_running;
     t.m.reset();
     t.m.is_running = running;
+    t.armer_etage2();
     match r {
         Ok(true) => 1,
         Ok(false) => 0,
@@ -298,6 +307,26 @@ impl Tama {
     /// The screen's TE line, port 1 pin 10, as the firmware names it.
     const BROCHE_TE: u32 = 0x1A;
 
+    /// The TE line as this board has it: the wide-panel boards have it on port 1 pin 12.
+    fn broche_te(&self) -> u32 {
+        if self.couche {
+            0x1C
+        } else {
+            Self::BROCHE_TE
+        }
+    }
+
+    /// The keys as this board has them. The app names them by the Paradise's pins (A 0x09,
+    /// B 0x0B, C 0x0A); the wide-panel boards have them on port 1, pins 15, 14 and 13.
+    fn broche_touche(&self, pin: u32) -> u32 {
+        match (self.couche, pin) {
+            (true, 0x09) => 0x1F,
+            (true, 0x0B) => 0x1E,
+            (true, 0x0A) => 0x1D,
+            _ => pin,
+        }
+    }
+
     /// Looks for the pin-read function in program memory (once the boot has filled it).
     fn chercher_lecture(&mut self) {
         let now = self.m.cpu.cycles;
@@ -322,9 +351,177 @@ impl Tama {
     /// One slice of the console, instruction by instruction (what Capybara's run_frame does),
     /// except that a read of the TE pin skips the time until the pin changes. False when the
     /// core stopped.
+    // ---- a second program behind a boot loader ----
+    //
+    // Some firmwares of this chip are two programs: the one the chip's own loader starts is a
+    // boot loader, and the flash holds a second, separately encrypted program behind a header
+    // "SN_FWIN" at 0x100000. The boot loader decrypts it into the program RAM with the chip's AES
+    // engine (0x40029000) and jumps into it. Capybara has no model of that engine, and it is not
+    // ours to change, so the engine is played here: while such a boot loader runs, the core goes
+    // instruction by instruction and watches the engine's registers in Capybara's record of
+    // accesses to registers it does not know.
+    //
+    // The engine, as the boot loader's driver uses it: control at +0 (bit 0 starts, bits 28-29 the
+    // key size 128/192/256), busy at +4, source and destination addresses at +0x10 and +0x14, the
+    // length minus 16 at +0x18, the key words at +0x1C.. +0x28, +0x40, +0x44, +0x80, +0x84. A block
+    // goes in and comes out with its 16 bytes in reverse order, and the key is the words from the
+    // last to the first, each with its high byte first.
+
+    const AES_BASE: u32 = 0x4002_9000;
+
+    fn armer_etage2(&mut self) {
+        let f = &self.m.bus.flash.data;
+        let la = f.len() > 0x101000 && &f[0x100000..0x100007] == b"SN_FWIN";
+        self.etage2 = (la, 0, 0, 0);
+        self.couche = la;
+        if la {
+            self.lecture_broche = None;
+            self.lecture_cherchee = 0;
+        }
+        let t = &mut self.m.bus.mmio_trace;
+        t.enabled = la;
+        if la {
+            t.unknown.clear();
+            t.all.clear();
+        }
+        t.forcees.remove(&Self::AES_BASE);
+        // this board has the screen's frame signal on P1.12, where the Paradise has it on P1.10
+        if la {
+            use emulator::peripherals::gpio_port::TE_DEMI_PERIODE;
+            self.m.periph.port1.periodique = Some((12, TE_DEMI_PERIODE));
+            // and a panel of 128 x 160: the frames the firmware sends are that long
+            if self.m.periph.display.vram.len() != 128 * 160 {
+                self.m.periph.display.vram = vec![0; 128 * 160];
+            }
+        }
+    }
+
+    /// The wide panel (128 x 160, mounted a quarter turn round) as the 160 x 128 picture seen.
+    fn ecran_large(&mut self, o: &mut [u16]) -> bool {
+        let d = &mut self.m.periph.display;
+        if d.vram.len() >= 128 * 160 {
+            for y in 0..128 {
+                for x in 0..160 {
+                    o[y * 160 + x] = d.vram[(159 - x) * 128 + y];
+                }
+            }
+        }
+        let changed = d.dirty;
+        d.dirty = false;
+        changed
+    }
+
+    fn tranche_etage2(&mut self, jusqu: u64) -> bool {
+        if !self.m.is_running {
+            return false;
+        }
+        let mut left = self.m.instructions_per_frame;
+        while left > 0 && self.m.cpu.cycles < jusqu {
+            match self.m.step() {
+                StepResult::Ok(_) => {}
+                _ => {
+                    self.m.is_running = false;
+                    return false;
+                }
+            }
+            left -= 1;
+            let Some(c) = self.m.bus.mmio_trace.unknown.get(&Self::AES_BASE) else { continue };
+            let (ecrits, val) = (c.writes, c.last_write);
+            if ecrits == self.etage2.1 {
+                // the second program runs from the program RAM once the engine has been quiet a while
+                if self.etage2.2 > 0 {
+                    self.etage2.3 += 1;
+                    if self.etage2.3 > 200_000 && self.m.cpu.regs.pc < 0x1_0000 {
+                        self.etage2.0 = false;
+                        let t = &mut self.m.bus.mmio_trace;
+                        t.enabled = false;
+                        t.unknown.clear();
+                        t.all.clear();
+                        t.forcees.remove(&Self::AES_BASE);
+                        self.recomp.clear();
+                        break;
+                    }
+                }
+                continue;
+            }
+            self.etage2.1 = ecrits;
+            // the driver reads the register back and changes single fields: it keeps what was
+            // written, less the start bits, which fall back by themselves
+            let garde = self.m.bus.mmio_trace.forcees.get(&Self::AES_BASE).copied().unwrap_or(0);
+            let tout = (garde & !0xF000_00F0) | (val & !5) | (if val & 0xF000_0000 != 0 { 0 } else { garde & 0x3000_0000 }) | (if val & 0xF0 != 0 { 0 } else { garde & 0xF0 });
+            self.m.bus.mmio_trace.forcees.insert(Self::AES_BASE, tout & !5);
+            if val & 1 != 0 {
+                self.bloc_aes(tout);
+                self.etage2.2 += 1;
+                self.etage2.3 = 0;
+            }
+        }
+        true
+    }
+
+    fn bloc_aes(&mut self, ctrl: u32) {
+        use emulator::aes::Aes;
+        let reg = |t: &Tama, o: u32| t.m.bus.mmio_trace.unknown.get(&(Self::AES_BASE + o)).map(|e| e.last_write).unwrap_or(0);
+        let mots = match (ctrl >> 28) & 3 {
+            0 => 4,
+            1 => 6,
+            _ => 8,
+        };
+        if mots == 6 {
+            return; // 192 bits: not seen, and not in Capybara's AES
+        }
+        const CLE: [u32; 8] = [0x1C, 0x20, 0x24, 0x28, 0x40, 0x44, 0x80, 0x84];
+        let mut cle = Vec::with_capacity(mots * 4);
+        for i in (0..mots).rev() {
+            cle.extend_from_slice(&reg(self, CLE[i]).to_be_bytes());
+        }
+        let aes = Aes::new(&cle);
+        let (src, dst, n) = (reg(self, 0x10), reg(self, 0x14), reg(self, 0x18) as usize + 16);
+        for b in (0..n.min(0x1_0000)).step_by(16) {
+            let mut bloc = [0u8; 16];
+            for i in 0..16 {
+                bloc[15 - i] = self.octet(src + (b + i) as u32);
+            }
+            let sorti = aes.encrypt_block(&bloc);
+            for i in 0..16 {
+                self.poser(dst + (b + i) as u32, sorti[15 - i]);
+            }
+        }
+    }
+
+    fn octet(&self, a: u32) -> u8 {
+        let b = &self.m.bus;
+        match a {
+            0x1800_0000..=0x1803_FFFF => b.sram.data.get((a - 0x1800_0000) as usize).copied().unwrap_or(0),
+            0..=0xFFFF => b.pram.data.get(a as usize).copied().unwrap_or(0),
+            0x6000_0000..=0x60FF_FFFF => b.flash.data.get((a - 0x6000_0000) as usize).copied().unwrap_or(0xFF),
+            _ => 0,
+        }
+    }
+
+    fn poser(&mut self, a: u32, v: u8) {
+        let b = &mut self.m.bus;
+        match a {
+            0x1800_0000..=0x1803_FFFF => {
+                if let Some(x) = b.sram.data.get_mut((a - 0x1800_0000) as usize) {
+                    *x = v
+                }
+            }
+            0..=0xFFFF => {
+                if let Some(x) = b.pram.data.get_mut(a as usize) {
+                    *x = v
+                }
+            }
+            _ => {}
+        }
+    }
+
     fn tranche(&mut self, jusqu: u64) -> bool {
         if !self.m.is_running {
             return false;
+        }
+        if self.etage2.0 {
+            return self.tranche_etage2(jusqu);
         }
         self.chercher_lecture();
         let lecture = self.lecture_broche.unwrap_or(u32::MAX);
@@ -332,7 +529,7 @@ impl Tama {
         // (a slice ends at the cycles asked for: skipped screen waits make a slice of
         // instructions worth many milliseconds, and the caller paces real time)
         while left > 0 && self.m.cpu.cycles < jusqu {
-            if self.m.cpu.regs.pc == lecture && self.m.cpu.regs.get_reg(0) == Self::BROCHE_TE {
+            if self.m.cpu.regs.pc == lecture && self.m.cpu.regs.get_reg(0) == self.broche_te() {
                 self.attendre_te();
             }
             if self.recomp_on {
@@ -351,7 +548,7 @@ impl Tama {
                 }
             }
             // the interpreter takes this one (exceptions, IT blocks, the TE read, odd places)
-            if self.m.cpu.regs.pc == lecture && self.m.cpu.regs.get_reg(0) == Self::BROCHE_TE {
+            if self.m.cpu.regs.pc == lecture && self.m.cpu.regs.get_reg(0) == self.broche_te() {
                 self.attendre_te();
             }
             match self.m.step() {
@@ -371,7 +568,7 @@ impl Tama {
     /// must not lose a tick). On the toy the core does nothing else meanwhile either.
     fn attendre_te(&mut self) {
         const PAS: u32 = 2048;
-        let masque = 1u32 << 10;
+        let masque = 1u32 << (self.broche_te() & 0xF);
         let avant = self.m.periph.port1.entrees & masque;
         let mut fait = 0u32;
         while fait < CYCLES_PAR_SECONDE as u32 / 1000 {
@@ -725,6 +922,7 @@ impl Tama {
     /// The core was reset (its cycle counter restarted): the deadlines kept in cycles follow.
     fn recaler(&mut self) {
         self.recomp.clear();
+        self.armer_etage2();
         let now = self.m.cpu.cycles;
         self.veille_depuis = None;
         self.bloc = None;
@@ -912,12 +1110,45 @@ pub unsafe extern "C" fn tama_running(t: *const Tama) -> i32 {
 #[no_mangle]
 pub unsafe extern "C" fn tama_screen(t: *mut Tama, out: *mut u16) -> i32 {
     let t = &mut *t;
+    if t.couche {
+        // 128 x 128 for callers that know no other size: the middle of the wide screen
+        let mut large = vec![0u16; 160 * 128];
+        let changed = t.ecran_large(&mut large);
+        let o = std::slice::from_raw_parts_mut(out, 128 * 128);
+        for y in 0..128 {
+            o[y * 128..y * 128 + 128].copy_from_slice(&large[y * 160 + 16..y * 160 + 144]);
+        }
+        return changed as i32;
+    }
     let d = &mut t.m.periph.display;
     let n = d.vram.len().min(128 * 128);
     std::ptr::copy_nonoverlapping(d.vram.as_ptr(), out, n);
     let changed = d.dirty;
     d.dirty = false;
     changed as i32
+}
+
+/// The size of this console's screen: out[0] width, out[1] height (128 x 128, or 160 x 128 on
+/// the boards with the wide panel).
+#[no_mangle]
+pub unsafe extern "C" fn tama_screen_size(t: *const Tama, out: *mut u32) {
+    let t = &*t;
+    *out = if t.couche { 160 } else { 128 };
+    *out.add(1) = 128;
+}
+
+/// The whole screen as RGB565 into out, which holds `cap` values (at least width x height of
+/// tama_screen_size). Returns 1 when it changed, 0 when not, -1 when out is too small.
+#[no_mangle]
+pub unsafe extern "C" fn tama_screen_full(t: *mut Tama, out: *mut u16, cap: u32) -> i32 {
+    let t = &mut *t;
+    if !t.couche {
+        return if cap >= 128 * 128 { tama_screen(t, out) } else { -1 };
+    }
+    if cap < 160 * 128 {
+        return -1;
+    }
+    t.ecran_large(std::slice::from_raw_parts_mut(out, 160 * 128)) as i32
 }
 
 /// Pins: A 0x09, B 0x0B, C 0x0A, wheel press 0x08, encoder 0x20 / 0x21.
@@ -927,12 +1158,15 @@ pub unsafe extern "C" fn tama_press(t: *mut Tama, pin: u32) {
     if t.reveiller() {
         return; // the press wakes the console, as on the toy
     }
+    let pin = t.broche_touche(pin);
     t.m.appuyer(pin);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn tama_release(t: *mut Tama, pin: u32) {
-    (*t).m.relacher(pin);
+    let t = &mut *t;
+    let pin = t.broche_touche(pin);
+    t.m.relacher(pin);
 }
 
 /// The note the console plays now in Hz, 0 when silent.
@@ -1337,8 +1571,15 @@ pub unsafe fn machine<'a>(t: *mut Tama) -> &'a mut Machine {
 #[doc(hidden)]
 pub unsafe fn step_one(t: *mut Tama) {
     let t = &mut *t;
+    if t.etage2.0 {
+        let n = t.m.instructions_per_frame;
+        t.m.instructions_per_frame = 1;
+        t.tranche_etage2(u64::MAX);
+        t.m.instructions_per_frame = n;
+        return;
+    }
     t.chercher_lecture();
-    if Some(t.m.cpu.regs.pc) == t.lecture_broche && t.m.cpu.regs.get_reg(0) == Tama::BROCHE_TE {
+    if Some(t.m.cpu.regs.pc) == t.lecture_broche && t.m.cpu.regs.get_reg(0) == t.broche_te() {
         t.attendre_te();
     }
     t.m.step();

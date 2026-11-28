@@ -292,7 +292,7 @@ class AppState extends ChangeNotifier {
     try {
       final s = m.screen;
       if (s.every((v) => v == 0)) return null;
-      final rgba = Uint8List(128 * 128 * 4);
+      final rgba = Uint8List(s.length * 4);
       for (var i = 0; i < s.length; i++) {
         final v = s[i];
         rgba[i * 4] = ((v >> 11) & 31) * 255 ~/ 31;
@@ -300,7 +300,7 @@ class AppState extends ChangeNotifier {
         rgba[i * 4 + 2] = (v & 31) * 255 ~/ 31;
         rgba[i * 4 + 3] = 255;
       }
-      final png = await compute(_png4x, rgba);
+      final png = await compute(_png4x, (rgba, m.width, m.height));
       final f = File('${library.docs.path}/shots/call.png');
       await f.parent.create(recursive: true);
       await f.writeAsBytes(png, flush: true);
@@ -312,16 +312,16 @@ class AppState extends ChangeNotifier {
   }
 
   /// Four times bigger with hard pixels: notifications smooth what they are given.
-  static Uint8List _png4x(Uint8List rgba) => img.encodePng(img.copyResize(
-      img.Image.fromBytes(width: 128, height: 128, bytes: rgba.buffer, numChannels: 4),
-      width: 512, height: 512, interpolation: img.Interpolation.nearest));
+  static Uint8List _png4x((Uint8List, int, int) p) => img.encodePng(img.copyResize(
+      img.Image.fromBytes(width: p.$2, height: p.$3, bytes: p.$1.buffer, numChannels: 4),
+      width: p.$2 * 4, height: p.$3 * 4, interpolation: img.Interpolation.nearest));
 
   /// The last picture of a game's screen (shown on its card while it is not running).
   File shotFile(String id) => File('${library.docs.path}/shots/$id.png');
   Future<void> saveShot(String id, ParadiseMachine m) async {
     try {
-      final rgba = Uint8List(128 * 128 * 4);
       final s = m.screen;
+      final rgba = Uint8List(s.length * 4);
       for (var i = 0; i < s.length; i++) {
         final v = s[i];
         rgba[i * 4] = ((v >> 11) & 31) * 255 ~/ 31;
@@ -330,7 +330,7 @@ class AppState extends ChangeNotifier {
         rgba[i * 4 + 3] = 255;
       }
       if (rgba.every((b) => b == 0 || b == 255) && s.every((v) => v == 0)) return; // asleep, black: keep the last
-      final png = await compute(_png, rgba);
+      final png = await compute(_png, (rgba, m.width, m.height));
       final f = shotFile(id);
       await f.parent.create(recursive: true);
       await f.writeAsBytes(png, flush: true);
@@ -346,7 +346,7 @@ class AppState extends ChangeNotifier {
     shotRevision++;
     notifyListeners();
   }
-  static Uint8List _png(Uint8List rgba) => img.encodePng(img.Image.fromBytes(width: 128, height: 128, bytes: rgba.buffer, numChannels: 4));
+  static Uint8List _png((Uint8List, int, int) p) => img.encodePng(img.Image.fromBytes(width: p.$2, height: p.$3, bytes: p.$1.buffer, numChannels: 4));
 
   /// Stops a game for good (saved; it no longer lives in the background).
   Future<void> stopGame(String id) async {

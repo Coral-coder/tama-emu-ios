@@ -40,7 +40,7 @@ class _ParadiseViewState extends State<ParadiseView> {
   ui.Image? _img;
   bool _decoding = false;
   int _shown = -1;
-  final Uint8List _rgba = Uint8List(128 * 128 * 4);
+  Uint8List _rgba = Uint8List(128 * 128 * 4);
 
   ParadiseMachine get m => widget.machine;
 
@@ -99,6 +99,7 @@ class _ParadiseViewState extends State<ParadiseView> {
     if (_decoding) return; // big upscales: one picture at a time, the next tick takes the newest
     _shown = m.frame;
     final s = m.screen;
+    if (_rgba.length != s.length * 4) _rgba = Uint8List(s.length * 4);
     for (var i = 0; i < s.length; i++) {
       final v = s[i];
       _rgba[i * 4] = ((v >> 11) & 31) * 255 ~/ 31;
@@ -106,7 +107,7 @@ class _ParadiseViewState extends State<ParadiseView> {
       _rgba[i * 4 + 2] = (v & 31) * 255 ~/ 31;
       _rgba[i * 4 + 3] = 255;
     }
-    final f = processFrame(_rgba, app.upscale, app.filters);
+    final f = processFrame(_rgba, app.upscale, app.filters, w: m.width, h: m.height);
     _decoding = true;
     ui.decodeImageFromPixels(f.rgba, f.w, f.h, ui.PixelFormat.rgba8888, (im) {
       _decoding = false;
@@ -194,7 +195,7 @@ class _ParadiseViewState extends State<ParadiseView> {
 
   Widget _mainScreen(AppState app) => _img == null
       ? const ColoredBox(color: Colors.black)
-      : RawImage(image: _img, fit: BoxFit.fill, filterQuality: app.upscale == Upscale.smooth || app.upscale == Upscale.hq ? FilterQuality.medium : FilterQuality.none);
+      : RawImage(image: _img, fit: m.width == m.height ? BoxFit.fill : BoxFit.contain, filterQuality: app.upscale == Upscale.smooth || app.upscale == Upscale.hq ? FilterQuality.medium : FilterQuality.none);
 
   /// One of the two linked consoles; touching it gives it the keys and the dial.
   Widget _pick(bool second, Widget screen) => GestureDetector(
@@ -397,7 +398,7 @@ class _ParadiseViewState extends State<ParadiseView> {
                           : Stack(
                               fit: StackFit.expand,
                               children: [
-                                RawImage(image: _img, fit: BoxFit.fill, filterQuality: app.upscale == Upscale.smooth || app.upscale == Upscale.hq ? FilterQuality.medium : FilterQuality.none),
+                                RawImage(image: _img, fit: m.width == m.height ? BoxFit.fill : BoxFit.contain, filterQuality: app.upscale == Upscale.smooth || app.upscale == Upscale.hq ? FilterQuality.medium : FilterQuality.none),
                                 for (final f in app.filters)
                                   if (isOverlay(f)) IgnorePointer(child: CustomPaint(painter: OverlayPainter(f))),
                               ],

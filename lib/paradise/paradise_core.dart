@@ -22,6 +22,8 @@ typedef _RunN = Uint64 Function(Pointer<_Tama>, Uint64, Uint32);
 typedef _RunD = int Function(Pointer<_Tama>, int, int);
 typedef _ScreenN = Int32 Function(Pointer<_Tama>, Pointer<Uint16>);
 typedef _ScreenD = int Function(Pointer<_Tama>, Pointer<Uint16>);
+typedef _ScreenFullN = Int32 Function(Pointer<_Tama>, Pointer<Uint16>, Uint32);
+typedef _ScreenFullD = int Function(Pointer<_Tama>, Pointer<Uint16>, int);
 typedef _PinN = Void Function(Pointer<_Tama>, Uint32);
 typedef _PinD = void Function(Pointer<_Tama>, int);
 typedef _NoteN = Float Function(Pointer<_Tama>);
@@ -74,6 +76,8 @@ class ParadiseCore {
         _run = l.lookupFunction<_RunN, _RunD>('tama_run'),
         _running = l.lookupFunction<_IntN, _IntD>('tama_running'),
         _screen = l.lookupFunction<_ScreenN, _ScreenD>('tama_screen'),
+        _screenFull = l.lookupFunction<_ScreenFullN, _ScreenFullD>('tama_screen_full'),
+        _screenSize = l.lookupFunction<_PlacesN, _PlacesD>('tama_screen_size'),
         _press = l.lookupFunction<_PinN, _PinD>('tama_press'),
         _release = l.lookupFunction<_PinN, _PinD>('tama_release'),
         _note = l.lookupFunction<_NoteN, _NoteD>('tama_note'),
@@ -131,7 +135,10 @@ class ParadiseCore {
   final _IntD _writeSave;
   final _RunD _run;
   final _IntD _running;
+  // ignore: unused_field
   final _ScreenD _screen;
+  final _ScreenFullD _screenFull;
+  final _PlacesD _screenSize;
   final _PinD _press, _release;
   final _NoteD _note;
   final _IntD _sleeping;
@@ -188,7 +195,8 @@ class ParadiseHandle {
 
   final ParadiseCore core;
   Pointer<_Tama> _t;
-  final Pointer<Uint16> _fb = calloc<Uint16>(128 * 128);
+  static const int _fbMax = 160 * 128;
+  final Pointer<Uint16> _fb = calloc<Uint16>(_fbMax);
 
   static const int pinA = 0x09, pinB = 0x0B, pinC = 0x0A, pinWheel = 0x08, enc1 = 0x20, enc2 = 0x21;
 
@@ -363,10 +371,22 @@ class ParadiseHandle {
   bool exportFlash(String path) => _withPath(path, (c) => core._exportFlash(_t, c)) == 0;
   bool restore(String path) => _withPath(path, (c) => core._restore(_t, c)) == 0;
 
-  /// The 128 x 128 screen (RGB565); returns true when it changed since the last call.
+  /// The size of this console's screen: 128 x 128, or 160 x 128 (My Lab).
+  (int, int) screenSize() {
+    final o = calloc<Uint32>(2);
+    try {
+      core._screenSize(_t, o);
+      return (o[0], o[1]);
+    } finally {
+      calloc.free(o);
+    }
+  }
+
+  /// The screen (RGB565, width x height of [screenSize]); returns true when it changed since
+  /// the last call.
   bool screen(Uint16List out) {
-    final changed = core._screen(_t, _fb) != 0;
-    out.setAll(0, _fb.asTypedList(128 * 128));
+    final changed = core._screenFull(_t, _fb, _fbMax) > 0;
+    out.setAll(0, _fb.asTypedList(out.length < _fbMax ? out.length : _fbMax));
     return changed;
   }
 

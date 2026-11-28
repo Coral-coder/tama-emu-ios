@@ -24,6 +24,14 @@
   "note": "your ROM"
  },
  {
+  "id": "paradise-my-lab",
+  "name": "Tamagotchi Paradise \u00b7 My Lab",
+  "kind": "paradise",
+  "size": 16777216,
+  "file": "paradise-my-lab.bin.gz",
+  "note": "your ROM"
+ },
+ {
   "id": "paradise-neon-planets",
   "name": "Tamagotchi Paradise \u00b7 Neon Planets",
   "kind": "paradise",

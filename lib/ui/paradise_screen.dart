@@ -20,7 +20,7 @@ class _ParadiseScreenState extends State<ParadiseScreen> {
   ui.Image? _img;
   bool _decoding = false;
   int _shown = -1;
-  final Uint8List _rgba = Uint8List(128 * 128 * 4);
+  Uint8List _rgba = Uint8List(128 * 128 * 4);
 
   @override
   void initState() {
@@ -53,6 +53,7 @@ class _ParadiseScreenState extends State<ParadiseScreen> {
     if (_decoding) return; // big upscales: one picture at a time, the next tick takes the newest
     _shown = m.frame;
     final s = m.screen;
+    if (_rgba.length != s.length * 4) _rgba = Uint8List(s.length * 4);
     for (var i = 0; i < s.length; i++) {
       final v = s[i];
       _rgba[i * 4] = ((v >> 11) & 31) * 255 ~/ 31;
@@ -61,7 +62,7 @@ class _ParadiseScreenState extends State<ParadiseScreen> {
       _rgba[i * 4 + 3] = 255;
     }
     final app = AppState.instance;
-    final f = processFrame(_rgba, app.upscale, app.filters);
+    final f = processFrame(_rgba, app.upscale, app.filters, w: m.width, h: m.height);
     _decoding = true;
     ui.decodeImageFromPixels(f.rgba, f.w, f.h, ui.PixelFormat.rgba8888, (im) {
       _decoding = false;
@@ -80,7 +81,7 @@ class _ParadiseScreenState extends State<ParadiseScreen> {
         ? const ColoredBox(color: Colors.black)
         : RawImage(
             image: _img,
-            fit: BoxFit.fill,
+            fit: widget.machine.width == widget.machine.height ? BoxFit.fill : BoxFit.contain,
             filterQuality: app.upscale == Upscale.smooth || app.upscale == Upscale.hq ? FilterQuality.medium : FilterQuality.none,
           );
   }

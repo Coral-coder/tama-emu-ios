@@ -167,8 +167,8 @@ bool isOverlay(ScreenFilter f) => f == ScreenFilter.lcd || f == ScreenFilter.sca
 
 /// The screen as it is shown: coloured by every chosen filter in turn (they stack), then upscaled.
 /// Colouring first is 64 times less work at 8x.
-Frame processFrame(Uint8List rgba128, Upscale up, List<ScreenFilter> filters) {
-  var f = Frame(Uint8List.fromList(rgba128), 128, 128);
+Frame processFrame(Uint8List rgba128, Upscale up, List<ScreenFilter> filters, {int w = 128, int h = 128}) {
+  var f = Frame(Uint8List.fromList(rgba128), w, h);
   for (final k in filters) {
     colourFilter(f, k);
   }

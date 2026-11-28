@@ -18,7 +18,10 @@ class ParadiseMachine extends ChangeNotifier {
   final String title;
   ParadiseHandle? _h;
 
-  final Uint16List screen = Uint16List(128 * 128);
+  Uint16List screen = Uint16List(128 * 128);
+
+  /// The size of the screen: 128 x 128, or 160 x 128 (My Lab).
+  int width = 128, height = 128;
   int frame = 0; // bumps when the screen changed
 
   bool sound = true;
@@ -45,6 +48,10 @@ class ParadiseMachine extends ChangeNotifier {
       return r;
     }
     h.openSave(savePath);
+    final (w, hh) = h.screenSize();
+    if (w * hh != screen.length) screen = Uint16List(w * hh);
+    width = w;
+    height = hh;
     // the game's clock follows the phone (no date and time to set by hand)
     // the date screens of a new start confirm themselves when the clock could be set (the form
     // is then filled in with the phone's date)

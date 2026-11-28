@@ -352,15 +352,15 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
     final m = widget.machine;
     if (m.frame != _mapSeenFrame) {
       _mapSeenFrame = m.frame;
-      final g = Uint8List(128 * 128 * 4);
-      for (var i = 0; i < 128 * 128; i++) {
+      final g = Uint8List(m.screen.length * 4);
+      for (var i = 0; i < m.screen.length; i++) {
         final p = m.screen[i];
         g[i * 4] = ((p >> 11) & 31) * 255 ~/ 31;
         g[i * 4 + 1] = ((p >> 5) & 63) * 255 ~/ 63;
         g[i * 4 + 2] = (p & 31) * 255 ~/ 31;
         g[i * 4 + 3] = 255;
       }
-      ui.decodeImageFromPixels(g, 128, 128, ui.PixelFormat.rgba8888, (img) {
+      ui.decodeImageFromPixels(g, m.width, m.height, ui.PixelFormat.rgba8888, (img) {
         if (!mounted) {
           img.dispose();
           return;
@@ -411,7 +411,7 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
           Column(children: [
             Container(
               width: 128,
-              height: 128,
+              height: 128 * widget.machine.height / widget.machine.width,
               color: Colors.black,
               child: _gamePic == null ? null : RawImage(image: _gamePic, filterQuality: FilterQuality.none, fit: BoxFit.fill),
             ),
