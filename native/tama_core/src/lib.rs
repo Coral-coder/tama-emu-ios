@@ -64,6 +64,10 @@ pub struct Tama {
     // a second program behind a boot loader (see `etage2`): (armed, writes of the engine's control
     // register seen, blocks done, instructions since the last block)
     etage2: (bool, u64, u32, u32),
+    // every change of the note, with the console's clock at that moment (for a player that keeps time)
+    horloge: u64,
+    notes: std::collections::VecDeque<(u64, f32)>,
+    note_dite: f32,
     /// The panel lies on its side (the boards with a second program): the screen is given turned.
     couche: bool,
 }
@@ -101,6 +105,9 @@ pub extern "C" fn tama_new() -> *mut Tama {
         boucle: (0, 0, 0, 0),
         etage2: (false, 0, 0, 0),
         couche: false,
+        horloge: 0,
+        notes: std::collections::VecDeque::new(),
+        note_dite: 0.0,
         redemarrages: 0,
         veilles_sautees: 0,
         reveils: 0,
@@ -183,6 +190,9 @@ pub unsafe extern "C" fn tama_run(t: *mut Tama, cycles: u64, budget_ms: u32) -> 
     let t0 = Instant::now();
     let limit = Duration::from_millis(budget_ms.max(1) as u64);
     t.note_vue = 0.0;
+    // short slices: the sound is looked at after each, and a note's start and end are heard to
+    // the millisecond
+    t.m.instructions_per_frame = 2_000;
     let mut done: u64 = 0;
     while done < cycles && t0.elapsed() < limit {
         // Deep sleep: the core is parked until the clock block's alarm (or a key) wakes it, and
@@ -202,6 +212,7 @@ pub unsafe extern "C" fn tama_run(t: *mut Tama, cycles: u64, budget_ms: u32) -> 
             }
             t.m.cpu.cycles += pas;
             done += pas;
+            t.horloge += pas;
             t.veilles_sautees += pas;
             continue;
         }
@@ -214,9 +225,11 @@ pub unsafe extern "C" fn tama_run(t: *mut Tama, cycles: u64, budget_ms: u32) -> 
             // a wake from deep sleep resets the core, and its cycle counter with it
             t.reveils += 1;
             done += apres;
+            t.horloge += apres;
             t.recaler();
         } else {
             done += apres - avant;
+            t.horloge += apres - avant;
         }
         t.suivre_le_son();
         t.date_auto();
@@ -1087,6 +1100,13 @@ impl Tama {
         if note > 0.0 {
             self.note_vue = note;
         }
+        if note != self.note_dite {
+            self.note_dite = note;
+            if self.notes.len() >= 256 {
+                self.notes.pop_front();
+            }
+            self.notes.push_back((self.horloge, note));
+        }
     }
 }
 
@@ -1167,6 +1187,29 @@ pub unsafe extern "C" fn tama_release(t: *mut Tama, pin: u32) {
     let t = &mut *t;
     let pin = t.broche_touche(pin);
     t.m.relacher(pin);
+}
+
+/// The console's clock: cycles run (and skipped asleep) since it was loaded. It only goes on.
+#[no_mangle]
+pub unsafe extern "C" fn tama_clock(t: *const Tama) -> u64 {
+    (*t).horloge
+}
+
+/// The changes of the note since the last call, oldest first: for each, the clock (tama_clock)
+/// at which it changed into `at`, and the note in Hz (0: silence) into `hz`. Returns how many
+/// (at most `max`). A player that maps the clock to real time plays the melody in time, however
+/// unevenly the console was run.
+#[no_mangle]
+pub unsafe extern "C" fn tama_note_events(t: *mut Tama, at: *mut u64, hz: *mut f32, max: u32) -> u32 {
+    let t = &mut *t;
+    let mut n = 0;
+    while n < max {
+        let Some((c, h)) = t.notes.pop_front() else { break };
+        *at.add(n as usize) = c;
+        *hz.add(n as usize) = h;
+        n += 1;
+    }
+    n
 }
 
 /// The note the console plays now in Hz, 0 when silent.

@@ -28,6 +28,9 @@ typedef _PinN = Void Function(Pointer<_Tama>, Uint32);
 typedef _PinD = void Function(Pointer<_Tama>, int);
 typedef _NoteN = Float Function(Pointer<_Tama>);
 typedef _NoteD = double Function(Pointer<_Tama>);
+typedef _TickN = Uint64 Function(Pointer<_Tama>);
+typedef _NotesN = Uint32 Function(Pointer<_Tama>, Pointer<Uint64>, Pointer<Float>, Uint32);
+typedef _NotesD = int Function(Pointer<_Tama>, Pointer<Uint64>, Pointer<Float>, int);
 typedef _U64N = Uint64 Function();
 typedef _U64D = int Function();
 typedef _VoidN = Void Function();
@@ -81,6 +84,8 @@ class ParadiseCore {
         _press = l.lookupFunction<_PinN, _PinD>('tama_press'),
         _release = l.lookupFunction<_PinN, _PinD>('tama_release'),
         _note = l.lookupFunction<_NoteN, _NoteD>('tama_note'),
+        _clock = l.lookupFunction<_TickN, _IntD>('tama_clock'),
+        _notes = l.lookupFunction<_NotesN, _NotesD>('tama_note_events'),
         _sleeping = l.lookupFunction<_IntN, _IntD>('tama_sleeping'),
         _snapshot = l.lookupFunction<_PathN, _PathD>('tama_snapshot'),
         _exportFlash = l.lookupFunction<_PathN, _PathD>('tama_export_flash'),
@@ -141,6 +146,8 @@ class ParadiseCore {
   final _PlacesD _screenSize;
   final _PinD _press, _release;
   final _NoteD _note;
+  final _IntD _clock;
+  final _NotesD _notes;
   final _IntD _sleeping;
   final _PathD _exportFlash;
   final _MemSizeD _memSize;
@@ -221,6 +228,18 @@ class ParadiseHandle {
   void press(int pin) => core._press(_t, pin);
   void release(int pin) => core._release(_t, pin);
   double note() => core._note(_t);
+
+  /// The console's clock in cycles: only goes on (sleep skipped counts).
+  int clock() => core._clock(_t);
+
+  final Pointer<Uint64> _noteAt = calloc<Uint64>(64);
+  final Pointer<Float> _noteHz = calloc<Float>(64);
+
+  /// The changes of the note since the last call: (clock at the change, Hz; 0 is silence).
+  List<(int, double)> noteEvents() {
+    final n = core._notes(_t, _noteAt, _noteHz, 64);
+    return [for (var i = 0; i < n; i++) (_noteAt[i], _noteHz[i])];
+  }
   /// Sounds the console started so far.
   int get sounds => core._sounds(_t);
   final Pointer<Uint8> _linkBuf = calloc<Uint8>(8192);
@@ -395,6 +414,8 @@ class ParadiseHandle {
     core._free(_t);
     _t = nullptr;
     calloc.free(_fb);
+    calloc.free(_noteAt);
+    calloc.free(_noteHz);
     calloc.free(_linkBuf);
   }
 }

@@ -43,6 +43,11 @@ class MainActivity : FlutterActivity() {
                     TamaTone.set(freq, on, vol.toFloat())
                     result.success(null)
                 }
+                "toneAt" -> {
+                    TamaTone.schedule(call.argument<Double>("freq") ?: 4096.0, call.argument<Boolean>("on") ?: false,
+                        (call.argument<Double>("volume") ?: 0.35).toFloat(), (call.argument<Int>("delay") ?: 0).toLong())
+                    result.success(null)
+                }
                 "keepAlive" -> {
                     val on = call.argument<Boolean>("on") ?: false
                     val i = Intent(this, TamaService::class.java)

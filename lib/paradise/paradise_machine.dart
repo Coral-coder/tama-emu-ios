@@ -185,7 +185,7 @@ class ParadiseMachine extends ChangeNotifier {
     link?.pump();
     final note = h.note();
     // the buzzer plays while the game is on screen; in the background a notification calls
-    _tone(sound && !_bg ? note : 0);
+    _play(h, now);
     _watchCalls(note);
     // the console sleeps when left alone, like the toy (a key or the dial wakes it); only with
     // "keep the screen on" is it woken right away
@@ -231,6 +231,35 @@ class ParadiseMachine extends ChangeNotifier {
     if (_h == null) return;
     if (away.inSeconds > 2 && _timer == null) _h!.advance(away.inSeconds);
     start();
+  }
+
+  // The melody in time. The console is run in uneven portions (a frame's worth at a time, more
+  // after a stall), so a note read once per portion starts and ends at the wrong moments. The
+  // core stamps every change of the note with the console's clock instead; here that clock is
+  // tied to the phone's (a line that follows slowly, so a late portion does not bend it), and
+  // each change is handed to the platform's player a little ahead of its time.
+  static const int _soundAheadUs = 90000;
+  double? _clockOffsetUs; // phone time minus console time
+
+  void _play(ParadiseHandle h, int nowUs) {
+    final events = h.noteEvents();
+    if (!sound || _bg) {
+      _clockOffsetUs = null;
+      if (_toneOn) _tone(0);
+      return;
+    }
+    final cps = core.cyclesPerSecond * speed;
+    final consoleUs = h.clock() / cps * 1e6;
+    final off = nowUs - consoleUs;
+    final was = _clockOffsetUs;
+    // a jump (the console skipped time, or was held): start the line anew
+    _clockOffsetUs = was == null || (off - was).abs() > 250000 ? off : was + (off - was) * 0.05;
+    for (final (at, hz) in events) {
+      final due = at / cps * 1e6 + _clockOffsetUs! + _soundAheadUs;
+      final delay = ((due - nowUs) / 1000).round().clamp(0, 500);
+      _toneOn = hz > 20;
+      NativeBridge.toneAt(hz, delay);
+    }
   }
 
   void _tone(double hz) {

@@ -48,6 +48,10 @@ import UserNotifications
         let vol = args["volume"] as? Double ?? 0.35
         self.tone.set(frequency: freq, on: on, volume: vol)
         result(nil)
+      case "toneAt":
+        self.tone.schedule(frequency: args["freq"] as? Double ?? 4096, on: args["on"] as? Bool ?? false,
+                           volume: args["volume"] as? Double ?? 0.35, delay: Double(args["delay"] as? Int ?? 0) / 1000)
+        result(nil)
       case "keepAlive":
         self.tone.keepAlive(args["on"] as? Bool ?? false)
         result(nil)
@@ -105,6 +109,22 @@ final class TamaTone {
   private var sampleRate: Double = 44100
   private var alive = false
   private var observers: [NSObjectProtocol] = []
+  /// Changes of the tone to come, in time order: (when, on the system's uptime clock; frequency; on).
+  private var queue: [(at: Double, freq: Double, on: Bool)] = []
+
+  /// A change of the tone `delay` seconds from now. The audio thread makes it at the very
+  /// sample, so a melody sent ahead of time keeps its rhythm.
+  func schedule(frequency: Double, on: Bool, volume: Double, delay: Double) {
+    let at = ProcessInfo.processInfo.systemUptime + max(0, delay)
+    lock.lock()
+    self.volume = Float(max(0, min(1, volume)))
+    // what was planned after this moment is replaced by it
+    queue.removeAll { $0.at >= at }
+    queue.append((at, max(100, frequency), on))
+    if queue.count > 64 { queue.removeFirst(queue.count - 64) }
+    lock.unlock()
+    ensureRunning()
+  }
 
   init() {
     let nc = NotificationCenter.default
@@ -131,6 +151,7 @@ final class TamaTone {
     self.freq = max(100, frequency)
     self.on = on
     self.volume = Float(max(0, min(1, volume)))
+    queue.removeAll()
     lock.unlock()
     if on { ensureRunning() } else if !alive { stopSoon() }
   }
@@ -147,10 +168,44 @@ final class TamaTone {
     let mono = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
     let node = AVAudioSourceNode(format: mono) { [weak self] silence, _, frameCount, abl -> OSStatus in
       guard let self = self else { return noErr }
+      // this block of sound starts now; changes that fall into it are made at their sample
+      let t0 = ProcessInfo.processInfo.systemUptime
+      let span = Double(frameCount) / self.sampleRate
       self.lock.lock()
-      let f = self.freq, target: Float = self.on ? self.volume : 0
+      var due: [(frame: Int, freq: Double, on: Bool)] = []
+      while let e = self.queue.first, e.at < t0 + span {
+        due.append((max(0, Int((e.at - t0) * self.sampleRate)), e.freq, e.on))
+        self.queue.removeFirst()
+      }
+      var f = self.freq
+      var target: Float = self.on ? self.volume : 0
+      let vol = self.volume
+      if let last = due.last {
+        self.freq = last.freq
+        self.on = last.on
+      }
       self.lock.unlock()
       let buffers = UnsafeMutableAudioBufferListPointer(abl)
+      if !due.isEmpty {
+        var next = 0
+        var step = f / self.sampleRate
+        for frame in 0..<Int(frameCount) {
+          while next < due.count && due[next].frame <= frame {
+            f = due[next].freq
+            target = due[next].on ? vol : 0
+            step = f / self.sampleRate
+            next += 1
+          }
+          self.level += (target - self.level) * 0.01
+          self.phase += step
+          if self.phase >= 1 { self.phase -= 1 }
+          let v: Float = (self.phase < 0.5 ? 1 : -1) * self.level * 0.5
+          for b in buffers {
+            b.mData?.assumingMemoryBound(to: Float.self)[frame] = v
+          }
+        }
+        return noErr
+      }
       // Between beeps (nearly all the time in the background): zeros, flagged as silence so the
       // system does no mixing work, and no per-sample maths.
       if target == 0 && abs(self.level) < 0.0005 {

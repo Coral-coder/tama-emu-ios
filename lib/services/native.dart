@@ -21,6 +21,19 @@ class NativeBridge {
     }
   }
 
+  /// A change of the buzzer [delayMs] from now (0 Hz or less: silence). The platform side keeps
+  /// the time on its audio clock, so a melody sent a little ahead plays evenly.
+  static Future<void> toneAt(double hz, int delayMs) async {
+    final on = hz > 20;
+    _lastFreq = on ? (hz * 10).round() : 0;
+    _lastOn = on;
+    try {
+      await _ch.invokeMethod('toneAt', {'freq': hz, 'on': on, 'volume': volume, 'delay': delayMs});
+    } catch (e) {
+      debugPrint('toneAt: $e');
+    }
+  }
+
   static Future<void> keepAlive(bool on, {String title = 'Tama', String text = 'Your Tamagotchi keeps living'}) async {
     try {
       await _ch.invokeMethod('keepAlive', {'on': on, 'title': title, 'text': text});
